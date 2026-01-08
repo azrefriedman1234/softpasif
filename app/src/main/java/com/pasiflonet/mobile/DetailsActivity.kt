@@ -168,6 +168,29 @@ class DetailsActivity : AppCompatActivity() {
     private fun restoreLogoPosition() { if (imageBounds.width() > 0) { b.ivDraggableLogo.x = imageBounds.left + (savedLogoRelX * imageBounds.width()); b.ivDraggableLogo.y = imageBounds.top + (savedLogoRelY * imageBounds.height()) } }
     private fun setupMediaToggle() { b.swIncludeMedia.setOnCheckedChangeListener { _, isChecked -> b.vDisabledOverlay.visibility = if (isChecked) android.view.View.GONE else android.view.View.VISIBLE; b.mediaToolsContainer.alpha = if (isChecked) 1.0f else 0.3f; b.btnModeBlur.isEnabled = isChecked; b.btnModeLogo.isEnabled = isChecked } }
 
+    private fun ensureLocalFilePath(pathOrUri: String, isVideo: Boolean): String? {
+        return try {
+            when {
+                pathOrUri.startsWith("content://") -> {
+                    val uri = android.net.Uri.parse(pathOrUri)
+                    val ext = if (isVideo) "mp4" else "bin"
+                    val out = java.io.File(cacheDir, "in_${System.currentTimeMillis()}.$ext")
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        java.io.FileOutputStream(out).use { output ->
+                            input.copyTo(output)
+                        }
+                    } ?: return null
+                    out.absolutePath
+                }
+                pathOrUri.startsWith("file://") -> android.net.Uri.parse(pathOrUri).path
+                else -> pathOrUri
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Details", "ensureLocalFilePath failed", e)
+            null
+        }
+    }
+
     private fun performSafeSend() {
         b.loadingOverlay.visibility = android.view.View.VISIBLE; b.btnSend.isEnabled = false
         val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE); val target = prefs.getString("target_username", "") ?: ""; val caption = b.etCaption.text.toString(); val includeMedia = b.swIncludeMedia.isChecked; val currentPath = thumbPath
@@ -180,6 +203,8 @@ class DetailsActivity : AppCompatActivity() {
                 var finalPath = currentPath
                 if (finalPath == null || !File(finalPath).exists()) { if (fileId != 0) { TdLibManager.downloadFile(fileId); Thread.sleep(2000); finalPath = TdLibManager.getFilePath(fileId) } }
                 if (finalPath == null || !File(finalPath).exists()) { withContext(Dispatchers.Main) { safeToast("File not found!"); if (!isFinishing) { b.loadingOverlay.visibility = android.view.View.GONE; b.btnSend.isEnabled = true } }; return@launch }
+
+                finalPath = finalPath?.let { ensureLocalFilePath(it, isVideo) } ?: finalPath
 
                 safeToast(if(isVideo) "Processing..." else "Processing Image...")
                 
