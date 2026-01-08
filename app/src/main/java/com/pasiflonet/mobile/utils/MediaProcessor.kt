@@ -123,24 +123,28 @@ object MediaProcessor {
             filter.append("$stream" + "null[outv]")
         }
 
-        val cmd = StringBuilder()
-        cmd.append("-y -i "$inputPath" ")
-        if (hasLogo) cmd.append("-i "$logoPath" ")
+                val cmd = StringBuilder()
 
-        cmd.append("-filter_complex "")
-        cmd.append(filter)
-        cmd.append("" ")
+                cmd.append("-y ")
+                cmd.append("-i \"").append(inputPath).append("\" ")
+                if (hasLogo) {
+                    cmd.append("-i \"").append(logoPath).append("\" ")
+                }
 
-        // Map video from filter output, map audio optionally (won't fail if missing)
-        cmd.append("-map "[outv]" -map 0:a? ")
+                cmd.append("-filter_complex \"")
+                cmd.append(filter)
+                cmd.append("\" ")
 
-        // Safer audio handling for edited videos: re-encode to AAC instead of copy
-        cmd.append("-c:v libx264 -preset ultrafast -r 30 -pix_fmt yuv420p ")
-        cmd.append("-c:a aac -b:a 128k -ac 2 ")
-        cmd.append("-movflags +faststart ")
-        cmd.append(""$outputPath"")
+                // Map video from filter output, map audio optionally (won't fail if missing)
+                cmd.append("-map \"[outv]\" -map 0:a? ")
 
-        return cmd.toString()
+                // Safer audio handling for edited videos: re-encode to AAC instead of copy
+                cmd.append("-c:v libx264 -preset ultrafast -r 30 -pix_fmt yuv420p ")
+                cmd.append("-c:a aac -b:a 128k -ac 2 ")
+                cmd.append("-movflags +faststart ")
+                cmd.append("\"").append(outputPath).append("\"")
+
+                return cmd.toString()
     }
 
     private fun tryPrepareLogoFile(context: Context, logoUri: Uri?): String? {
