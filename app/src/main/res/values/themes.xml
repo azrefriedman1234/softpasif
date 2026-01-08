@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.PasiflonetMobile" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#4CAF50</item>
+        <item name="colorPrimaryVariant">#388E3C</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#FF5722</item>
+        <item name="colorSecondaryVariant">#D84315</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="android:statusBarColor">#121212</item>
+        </style>
+</resources>

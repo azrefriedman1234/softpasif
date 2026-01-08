@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#121212"
+    android:padding="20dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_title"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="30dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/target_channel_label"
+            android:textColor="#AAAAAA"
+            android:layout_marginBottom="5dp"/>
+
+        <EditText
+            android:id="@+id/etTargetUsername"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/channel_hint"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#666666"
+            android:background="#333333"
+            android:padding="15dp"
+            android:layout_marginBottom="20dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/logo_label"
+            android:textColor="#AAAAAA"
+            android:layout_marginBottom="10dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="20dp">
+
+            <ImageView
+                android:id="@+id/ivCurrentLogo"
+                android:layout_width="60dp"
+                android:layout_height="60dp"
+                android:background="#333333"
+                android:scaleType="fitCenter"/>
+
+            <Button
+                android:id="@+id/btnSelectLogo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/select_logo"
+                android:layout_marginStart="20dp"/>
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#333333"
+            android:layout_marginVertical="20dp"/>
+
+        <Button
+            android:id="@+id/btnClearCache"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/clear_cache"
+            android:backgroundTint="#FF5252"
+            android:layout_marginBottom="30dp"/>
+
+        <Button
+            android:id="@+id/btnSaveSettings"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="@string/save_settings"
+            android:backgroundTint="#4CAF50"
+            android:textStyle="bold"/>
+
+    </LinearLayout>
+</ScrollView>
