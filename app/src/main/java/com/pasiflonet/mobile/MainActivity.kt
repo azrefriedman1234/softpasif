@@ -8,6 +8,9 @@ import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import android.content.ClipData
+import android.content.ClipboardManager
+import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.pasiflonet.mobile.databinding.ActivityMainBinding
@@ -32,6 +35,7 @@ class MainActivity : AppCompatActivity() {
         try {
             b = ActivityMainBinding.inflate(layoutInflater)
             setContentView(b.root)
+        showLastCrashIfAny()
         } catch (e: Exception) {
             // אם העיצוב נכשל, נציג מסך חירום
             Log.e("UI_CRASH", "Layout Inflation Failed", e)
@@ -183,4 +187,27 @@ class MainActivity : AppCompatActivity() {
         }
         requestPermissionLauncher.launch(perms.toTypedArray()) 
     }
+
+    private fun showLastCrashIfAny() {
+        try {
+            val f = java.io.File(filesDir, "crash_last.txt")
+            if (!f.exists()) return
+            val txt = f.readText(Charsets.UTF_8)
+
+            AlertDialog.Builder(this)
+                .setTitle("Crash report (last)")
+                .setMessage(txt.take(12000)) // לא להציף
+                .setPositiveButton("Copy") { _, _ ->
+                    val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("crash_last", txt))
+                    Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Clear") { _, _ ->
+                    f.delete()
+                }
+                .setNeutralButton("Close", null)
+                .show()
+        } catch (_: Exception) {}
+    }
+
 }
