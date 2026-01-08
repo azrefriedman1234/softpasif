@@ -55,9 +55,6 @@ android {
 }
 
 dependencies {
-    implementation files("libs/smart-exception-java-0.2.1.jar")
-    implementation files("libs/smart-exception-common-0.2.1.jar")
-
     implementation 'androidx.core:core-ktx:1.9.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.9.0'
