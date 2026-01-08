@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.media.ExifInterface
+import android.graphics.Matrix
 import android.net.Uri
 import android.util.Log
 import java.io.File
@@ -12,6 +14,28 @@ import java.io.FileOutputStream
 
 // קובץ זה נקי לחלוטין מספריות חיצוניות כבדות
 object ImageUtils {
+
+    private fun rotateBitmapIfNeeded(inputPath: String, bmp: Bitmap): Bitmap {
+        return try {
+            val exif = ExifInterface(inputPath)
+            val ori = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            val m = Matrix()
+            when (ori) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> m.postRotate(90f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> m.postRotate(180f)
+                ExifInterface.ORIENTATION_ROTATE_270 -> m.postRotate(270f)
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> m.preScale(-1f, 1f)
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> m.preScale(1f, -1f)
+                else -> return bmp
+            }
+            val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+            if (rotated != bmp) bmp.recycle()
+            rotated
+        } catch (_: Exception) {
+            bmp
+        }
+    }
+
 
     fun processImage(
         context: Context,
@@ -28,7 +52,7 @@ object ImageUtils {
             BitmapFactory.decodeFile(inputPath, options)
             
             // חישוב גודל: מגבילים ל-2500 פיקסלים (איכות גבוהה אבל בטוחה)
-            options.inSampleSize = calculateInSampleSize(options, 2500, 2500)
+            options.inSampleSize = calculateInSampleSize(options, 4096, 4096)
             options.inJustDecodeBounds = false
             options.inMutable = true // חשוב כדי שנוכל לצייר עליה
             
@@ -96,7 +120,10 @@ object ImageUtils {
 
             // 4. שמירה לקובץ
             val outStream = FileOutputStream(outputPath)
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outStream)
+            val isPng = inputPath.lowercase().endsWith(".png")
+            val fmt = if (isPng) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+            val q = if (fmt == Bitmap.CompressFormat.JPEG) 95 else 100
+            bitmap.compress(fmt, q, outStream)
             outStream.flush()
             outStream.close()
             
