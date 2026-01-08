@@ -201,6 +201,9 @@ class DetailsActivity : AppCompatActivity() {
                 if (!includeMedia) { TdLibManager.sendFinalMessage(target, caption, null, false); clearDraft(); withContext(Dispatchers.Main) { finish() }; return@launch }
                 
                 var finalPath = currentPath
+
+                // ✅ FIX: Edited videos often come as content:// uri - copy to cache to get real file path
+                finalPath = finalPath?.let { ensureLocalFilePath(it, isVideo) } ?: finalPath
                 if (finalPath == null || !File(finalPath).exists()) { if (fileId != 0) { TdLibManager.downloadFile(fileId); Thread.sleep(2000); finalPath = TdLibManager.getFilePath(fileId) } }
                 if (finalPath == null || !File(finalPath).exists()) { withContext(Dispatchers.Main) { safeToast("File not found!"); if (!isFinishing) { b.loadingOverlay.visibility = android.view.View.GONE; b.btnSend.isEnabled = true } }; return@launch }
 
