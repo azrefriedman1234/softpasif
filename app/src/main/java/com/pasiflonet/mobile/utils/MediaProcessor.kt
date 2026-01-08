@@ -1,7 +1,6 @@
 package com.pasiflonet.mobile.utils
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
@@ -9,9 +8,20 @@ import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.max
+import kotlin.math.min
 
 object MediaProcessor {
 
+    /**
+     * Processes VIDEO only (images are handled in ImageUtils).
+     * Adds optional blur rectangles and optional logo overlay.
+     *
+     * This implementation is defensive:
+     * - Works when the input has no audio stream (maps audio optional)
+     * - Avoids invalid filter graphs ("null")
+     * - Clamps blur-rect values to sane ranges
+     */
     fun processContent(
         context: Context,
         inputPath: String,
@@ -24,97 +34,141 @@ object MediaProcessor {
         logoRelW: Float,
         onComplete: (Boolean) -> Unit
     ) {
-        // אם זה לא וידאו - אנחנו לא אמורים להיות פה (טופל ב-ImageUtils)
         if (!isVideo) {
             onComplete(false)
             return
         }
 
-        Log.d("MediaProcessor", "Processing Video: Lite Mode")
+        // Step 1: prepare logo file (optional)
+        val logoPath: String? = tryPrepareLogoFile(context, logoUri)
 
-        var logoPath: String? = null
-        
-        // שלב 1: הכנת לוגו עם הגנת זיכרון מחמירה
-        if (logoUri != null) {
-            try {
-                // בדיקת גודל הלוגו לפני טעינה לזיכרון
-                val options = BitmapFactory.Options()
-                options.inJustDecodeBounds = true
-                val inputStreamCheck = context.contentResolver.openInputStream(logoUri)
-                BitmapFactory.decodeStream(inputStreamCheck, null, options)
-                inputStreamCheck?.close()
-
-                // חישוב הקטנה (Sample Size) כדי לא לפוצץ זיכרון
-                options.inSampleSize = calculateInSampleSize(options, 500, 500)
-                options.inJustDecodeBounds = false
-
-                val inputStream = context.contentResolver.openInputStream(logoUri)
-                val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
-                inputStream?.close()
-
-                if (bitmap != null) {
-                    val file = File(context.cacheDir, "logo_v_safe.png")
-                    val out = FileOutputStream(file)
-                    // דחיסה ל-PNG קטן
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                    out.close()
-                    logoPath = file.absolutePath
-                    bitmap.recycle() // שחרור זיכרון מידי
-                }
-            } catch (e: Exception) {
-                Log.e("MediaProcessor", "Logo prep failed", e)
-            }
-        }
-
-        // שלב 2: בניית פקודת FFmpeg סופר-קלילה
-        val cmd = StringBuilder()
-        cmd.append("-y -i \"$inputPath\" ")
-        if (logoPath != null) cmd.append("-i \"$logoPath\" ")
-
-        cmd.append("-filter_complex \"")
-        
-        // הקטנה ל-720p (רוחב) כדי להקל על המכשיר
-        cmd.append("[0:v]scale=720:-2[v];")
-        var stream = "[v]"
-
-        // הוספת טשטוש
-        if (blurRects.isNotEmpty()) {
-            for (i in blurRects.indices) {
-                val r = blurRects[i]
-                val x = (r.left * 100).toInt()
-                val y = (r.top * 100).toInt()
-                val w = ((r.right - r.left) * 100).toInt()
-                val h = ((r.bottom - r.top) * 100).toInt()
-                cmd.append("${stream}boxblur=10:1:enable='between(x,iw*$x/100,iw*${x+w}/100)*between(y,ih*$y/100,ih*${y+h}/100)'[b$i];")
-                stream = "[b$i]"
-            }
-        }
-
-        // הוספת לוגו
-        if (logoPath != null) {
-            val x = (logoRelX * 100).toInt()
-            val y = (logoRelY * 100).toInt()
-            // שימוש ב-overlay פשוט
-            cmd.append("[1:v]scale=iw*0.3:-1[logo];${stream}[logo]overlay=W*$x/100:H*$y/100")
-        } else {
-            if (blurRects.isNotEmpty()) cmd.setLength(cmd.length - 1) else cmd.append("null")
-        }
-
-        // קידוד: ultrafast, 30fps, העתקת אודיו (הכי מהיר ובטוח)
-        cmd.append("\" -c:v libx264 -preset ultrafast -r 30 -pix_fmt yuv420p -c:a copy \"$outputPath\"")
+        // Step 2: build a safer ffmpeg command
+        val cmd = buildFfmpegCommand(
+            inputPath = inputPath,
+            outputPath = outputPath,
+            logoPath = logoPath,
+            blurRects = blurRects,
+            logoRelX = logoRelX,
+            logoRelY = logoRelY,
+            logoRelW = logoRelW
+        )
 
         try {
-            FFmpegKit.executeAsync(cmd.toString()) { session ->
+            FFmpegKit.executeAsync(cmd) { session ->
                 if (ReturnCode.isSuccess(session.returnCode)) {
                     onComplete(true)
                 } else {
                     Log.e("FFmpeg", "Failed: ${session.failStackTrace}")
-                    // במקרה של כישלון - לא קורסים! שולחים את המקור.
+                    // If ffmpeg fails, try to just copy the source to output (so we can still send).
                     fallbackCopy(inputPath, outputPath, onComplete)
                 }
             }
         } catch (e: Exception) {
+            Log.e("FFmpeg", "executeAsync crashed", e)
             fallbackCopy(inputPath, outputPath, onComplete)
+        }
+    }
+
+    private fun buildFfmpegCommand(
+        inputPath: String,
+        outputPath: String,
+        logoPath: String?,
+        blurRects: List<BlurRect>,
+        logoRelX: Float,
+        logoRelY: Float,
+        logoRelW: Float
+    ): String {
+        // Always scale to 720p width to reduce load
+        val filter = StringBuilder()
+        filter.append("[0:v]scale=720:-2[v0];")
+        var stream = "[v0]"
+
+        // Blur rects are relative (0..1). Clamp & skip invalid rectangles.
+        var blurIndex = 0
+        for (r in blurRects) {
+            val left = clamp01(r.left)
+            val top = clamp01(r.top)
+            val right = clamp01(r.right)
+            val bottom = clamp01(r.bottom)
+
+            val w = right - left
+            val h = bottom - top
+            if (w <= 0.001f || h <= 0.001f) continue
+
+            val xPct = (left * 100f).toInt()
+            val yPct = (top * 100f).toInt()
+            val xrPct = (right * 100f).toInt()
+            val ybPct = (bottom * 100f).toInt()
+
+            filter.append("$stream")
+            filter.append("boxblur=10:1:enable='between(x,iw*$xPct/100,iw*$xrPct/100)*between(y,ih*$yPct/100,ih*$ybPct/100)'")
+            filter.append("[b$blurIndex];")
+            stream = "[b$blurIndex]"
+            blurIndex++
+        }
+
+        val hasLogo = !logoPath.isNullOrBlank()
+        val xPct = (clamp01(logoRelX) * 100f).toInt()
+        val yPct = (clamp01(logoRelY) * 100f).toInt()
+        val wRel = clamp01(if (logoRelW.isFinite() && logoRelW > 0f) logoRelW else 0.25f)
+
+        if (hasLogo) {
+            // Scale logo to a fraction of video width (relative)
+            // Note: iw here refers to the logo input stream; we use scale2ref to size by video width safely.
+            // Simpler & stable: scale logo by a fixed fraction of output width.
+            filter.append("[1:v]scale=720*$wRel:-1[logo];")
+            filter.append("$stream[logo]overlay=W*$xPct/100:H*$yPct/100:format=auto[outv]")
+        } else {
+            // No logo: just pass-through last stream as [outv]
+            filter.append("$stream" + "null[outv]")
+        }
+
+        val cmd = StringBuilder()
+        cmd.append("-y -i "$inputPath" ")
+        if (hasLogo) cmd.append("-i "$logoPath" ")
+
+        cmd.append("-filter_complex "")
+        cmd.append(filter)
+        cmd.append("" ")
+
+        // Map video from filter output, map audio optionally (won't fail if missing)
+        cmd.append("-map "[outv]" -map 0:a? ")
+
+        // Safer audio handling for edited videos: re-encode to AAC instead of copy
+        cmd.append("-c:v libx264 -preset ultrafast -r 30 -pix_fmt yuv420p ")
+        cmd.append("-c:a aac -b:a 128k -ac 2 ")
+        cmd.append("-movflags +faststart ")
+        cmd.append(""$outputPath"")
+
+        return cmd.toString()
+    }
+
+    private fun tryPrepareLogoFile(context: Context, logoUri: Uri?): String? {
+        if (logoUri == null) return null
+        return try {
+            context.contentResolver.openInputStream(logoUri)?.use { input ->
+                val bytes = input.readBytes()
+                if (bytes.isEmpty()) return null
+
+                // Downsample to avoid OOM
+                val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                val req = 256
+                val sample = calculateInSampleSize(opts, req, req)
+
+                val opts2 = BitmapFactory.Options().apply { inSampleSize = sample }
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts2) ?: return null
+
+                val file = File(context.cacheDir, "logo_${System.currentTimeMillis()}.png")
+                FileOutputStream(file).use { out ->
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                }
+                bitmap.recycle()
+                file.absolutePath
+            }
+        } catch (e: Exception) {
+            Log.e("MediaProcessor", "Logo prep failed", e)
+            null
         }
     }
 
@@ -128,15 +182,21 @@ object MediaProcessor {
     }
 
     private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
-        val (height: Int, width: Int) = options.outHeight to options.outWidth
+        val height = options.outHeight
+        val width = options.outWidth
         var inSampleSize = 1
         if (height > reqHeight || width > reqWidth) {
-            val halfHeight: Int = height / 2
-            val halfWidth: Int = width / 2
+            val halfHeight = height / 2
+            val halfWidth = width / 2
             while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
                 inSampleSize *= 2
             }
         }
-        return inSampleSize
+        return max(1, inSampleSize)
+    }
+
+    private fun clamp01(v: Float): Float {
+        if (!v.isFinite()) return 0f
+        return min(1f, max(0f, v))
     }
 }
