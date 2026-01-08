@@ -13,6 +13,28 @@ import kotlin.math.min
 
 object MediaProcessor {
 
+    private fun resolveToLocalPath(context: Context, pathOrUri: String, isVideo: Boolean): String? {
+        return try {
+            when {
+                pathOrUri.startsWith("content://") -> {
+                    val uri = Uri.parse(pathOrUri)
+                    val ext = if (isVideo) "mp4" else "bin"
+                    val out = File(context.cacheDir, "src_${System.currentTimeMillis()}.$ext")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(out).use { output -> input.copyTo(output) }
+                    } ?: return null
+                    out.absolutePath
+                }
+                pathOrUri.startsWith("file://") -> Uri.parse(pathOrUri).path
+                else -> pathOrUri
+            }
+        } catch (e: Exception) {
+            Log.e("MediaProcessor", "resolveToLocalPath failed", e)
+            null
+        }
+    }
+
+
     /**
      * Processes VIDEO only (images are handled in ImageUtils).
      * Adds optional blur rectangles and optional logo overlay.

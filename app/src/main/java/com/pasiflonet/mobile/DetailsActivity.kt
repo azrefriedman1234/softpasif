@@ -226,9 +226,8 @@ class DetailsActivity : AppCompatActivity() {
                              contentResolver.openInputStream(uri)?.close()
                              logoUri = uri
                          } else {
-                             // גיבוי: נסיון לשמור מהתצוגה
-                             val d = b.ivDraggableLogo.drawable
-                             if (d is BitmapDrawable) { val f = File(cacheDir, "temp_logo.png"); val o = FileOutputStream(f); d.bitmap.compress(Bitmap.CompressFormat.PNG, 100, o); o.close(); logoUri = Uri.fromFile(f) }
+                             // גיבוי: לא מייצרים Bitmap מהתצוגה (עלול לקרוס בגלל זיכרון). אם אין לוגו שמור פשוט ממשיכים בלי לוגו.
+                             safeToast("No saved logo, sending without logo")
                          }
                      } catch(e: Exception) { Log.e("Logo", "Failed to resolve logo", e) }
                 }
