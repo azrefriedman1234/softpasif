@@ -35,6 +35,7 @@ class MainActivity : AppCompatActivity() {
         try {
             b = ActivityMainBinding.inflate(layoutInflater)
             setContentView(b.root)
+        showSmartExceptionStatus()
         showLastCrashIfAny()
         } catch (e: Exception) {
             // אם העיצוב נכשל, נציג מסך חירום
@@ -208,6 +209,16 @@ class MainActivity : AppCompatActivity() {
                 .setNeutralButton("Close", null)
                 .show()
         } catch (_: Exception) {}
+    }
+
+
+    private fun showSmartExceptionStatus() {
+        try {
+            Class.forName("com.arthenica.smartexception.java.Exceptions")
+            Toast.makeText(this, "✅ smart-exception-java PRESENT (new APK)", Toast.LENGTH_SHORT).show()
+        } catch (_: Throwable) {
+            Toast.makeText(this, "❌ smart-exception-java MISSING (old APK or build issue)", Toast.LENGTH_LONG).show()
+        }
     }
 
 }

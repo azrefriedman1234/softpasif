@@ -4,6 +4,9 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
 import java.io.File
@@ -56,6 +59,17 @@ object MediaProcessor {
         logoRelW: Float,
         onComplete: (Boolean) -> Unit
     ) {
+        // ✅ HARD GUARD: never crash if FFmpegKit dependency is missing
+        try {
+            Class.forName("com.arthenica.smartexception.java.Exceptions")
+        } catch (e: Throwable) {
+            Log.e("MediaProcessor", "Missing smart-exception-java (Exceptions). FFmpeg disabled.", e)
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "FFmpegKit missing dependency (smart-exception). Install NEW APK build.", Toast.LENGTH_LONG).show()
+            }
+            callback(false)
+            return
+        }
         if (!isVideo) {
             onComplete(false)
             return
@@ -75,6 +89,8 @@ object MediaProcessor {
             logoRelW = logoRelW
         )
 
+        try {
+            // ✅ EXTRA SAFETY: catch NoClassDefFoundError around FFmpegKit call
         try {
             FFmpegKit.executeAsync(cmd) { session ->
                 if (ReturnCode.isSuccess(session.returnCode)) {
