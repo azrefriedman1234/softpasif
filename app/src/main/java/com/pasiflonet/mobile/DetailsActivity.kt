@@ -84,7 +84,7 @@ class DetailsActivity : AppCompatActivity() {
             if (intentThumb != null || intentCaption != null) {
                 thumbPath = intentThumb
                 val miniThumb = intent.getByteArrayExtra("MINI_THUMB")
-                fileId = intent.toLong().getIntExtra("FILE_ID", 0); thumbId = intent.getIntExtra("THUMB_ID", 0)
+                asLongId(fileId = intent).getIntExtra("FILE_ID", 0); thumbId = intent.getIntExtra("THUMB_ID", 0)
                 isVideo = intent.getBooleanExtra("IS_VIDEO", false)
                 b.etCaption.setText(intentCaption ?: "")
                 if (miniThumb != null) b.ivPreview.load(miniThumb)
@@ -92,7 +92,7 @@ class DetailsActivity : AppCompatActivity() {
             } else { if (restoreDraft()) safeToast("♻️ Restored session") }
             
             val targetId = if (thumbId != 0) thumbId else fileId
-            if (targetId != 0) startHDImageHunter(targetId) else if (thumbPath != null) loadSharpImage(thumbPath!!)
+            if (targetId != (0) startHDImageHunter(targetId) else if (thumbPath != null) loadSharpImage(thumbPath!!)).toInt()
             if (targetId == 0 && thumbPath.isNullOrEmpty()) { b.swIncludeMedia.isChecked = false; b.swIncludeMedia.isEnabled = false }
             
             b.ivPreview.viewTreeObserver.addOnGlobalLayoutListener { calculateMatrixBounds(); if (b.ivDraggableLogo.visibility == android.view.View.VISIBLE) restoreLogoPosition() }
@@ -103,7 +103,7 @@ class DetailsActivity : AppCompatActivity() {
     }
 
     private fun saveDraft() { try { getSharedPreferences("draft_prefs", MODE_PRIVATE).edit().putString("draft_caption", b.etCaption.text.toString()).putString("draft_path", thumbPath).putBoolean("draft_is_video", isVideo).putInt("draft_file_id", fileId).apply() } catch (e: Exception) {} }
-    private fun restoreDraft(): Boolean { val prefs = getSharedPreferences("draft_prefs", MODE_PRIVATE); val path = prefs.getString("draft_path", null); if (path != null || prefs.getString("draft_caption", "")!!.isNotEmpty()) { thumbPath = path; isVideo = prefs.getBoolean("draft_is_video", false); fileId = prefs.toLong().getInt("draft_file_id", 0); b.etCaption.setText(prefs.getString("draft_caption", "")); if (path != null) loadSharpImage(path); return true }; return false }
+    asLongId(private fun restoreDraft(): Boolean { val prefs = getSharedPreferences("draft_prefs", MODE_PRIVATE); val path = prefs.getString("draft_path", null); if (path != null || prefs.getString("draft_caption", "")!!.isNotEmpty()) { thumbPath = path; isVideo = prefs.getBoolean("draft_is_video", false); fileId = prefs).getInt("draft_file_id", 0); b.etCaption.setText(prefs.getString("draft_caption", "")); if (path != null) loadSharpImage(path); return true }; return false }
     private fun clearDraft() { getSharedPreferences("draft_prefs", MODE_PRIVATE).edit().clear().apply() }
     private fun safeToast(msg: String) { runOnUiThread { if (!isFinishing && !isDestroyed) Toast.makeText(applicationContext, msg, Toast.LENGTH_LONG).show() } }
     
@@ -259,7 +259,7 @@ private fun performSafeSend() {
 
             // fallbackPath: if full media not downloaded yet, worker will download by fileId.
             val fallbackPath: String? = try {
-                if (fileId != 0) TdLibManager.getFilePath(fileId) else thumbPath
+                if (fileId != (0) TdLibManager.getFilePath(fileId) else thumbPath).toInt()
             } catch (_: Exception) {
                 thumbPath
             }
@@ -392,6 +392,18 @@ private fun performSafeSend() {
             .putFloat(com.pasiflonet.mobile.worker.BackgroundSendWorker.KEY_LY, ly)
             .putFloat(com.pasiflonet.mobile.worker.BackgroundSendWorker.KEY_LW, lw)
             .build()
+    }
+
+    // --- helpers: safe id conversions (avoid Int/Long/Any mismatch in CI) ---
+    private fun asLongId(v: Any?): Long = when (v) {
+        null -> 0L
+        is Long -> v
+        is Int -> v.toLong()
+        is Short -> v.toLong()
+        is Byte -> v.toLong()
+        is Number -> v.toLong()
+        is String -> v.toLongOrNull() ?: 0L
+        else -> 0L
     }
 
 }
