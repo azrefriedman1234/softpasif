@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
+import com.pasiflonet.mobile.utils.DebugLog
 import java.io.OutputStream
 import android.os.Environment
 import android.content.ContentValues
@@ -268,6 +269,41 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent.createChooser(sendIntent, "Share crash report"))
         } catch (e: Exception) {
             Toast.makeText(this, "Share failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+
+    private fun exportDebugLogToDownloads() {
+        try {
+            val f = DebugLog.file(this)
+            if (!f.exists()) {
+                Toast.makeText(this, "No debug log yet", Toast.LENGTH_LONG).show()
+                return
+            }
+            val txt = f.readText(Charsets.UTF_8)
+            val fileName = "Pasiflonet_debug_log.txt"
+            val resolver = contentResolver
+
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            }
+
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            if (uri == null) {
+                Toast.makeText(this, "Export failed (no uri)", Toast.LENGTH_LONG).show()
+                return
+            }
+
+            resolver.openOutputStream(uri)?.use { os ->
+                os.write(txt.toByteArray(Charsets.UTF_8))
+                os.flush()
+            }
+
+            Toast.makeText(this, "Exported debug log to Downloads", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 

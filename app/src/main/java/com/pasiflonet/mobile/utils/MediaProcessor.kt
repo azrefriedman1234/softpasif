@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
+import com.pasiflonet.mobile.utils.DebugLog
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
 import java.io.File
@@ -43,6 +44,8 @@ object MediaProcessor {
             return
         }
 
+        DebugLog.append(context, "processContent start | isVideo=$isVideo | in=$inputPath | out=$outputPath | rects=${blurRects.size} | hasLogo=$hasLogo")
+
         val resolvedInput = resolveToLocalPath(context, inputPath, isVideo) ?: run {
             callback(false); return
         }
@@ -72,12 +75,14 @@ object MediaProcessor {
         )
 
         Log.d("MediaProcessor", "ffmpeg cmd: $cmd")
+        DebugLog.append(context, "ffmpeg cmd: $cmd")
 
         // EXTRA SAFETY: גם אם משהו עדיין חסר – לא לקרוס.
         try {
             FFmpegKit.executeAsync(cmd) { session ->
                 val rc = session.returnCode
                 val ok = ReturnCode.isSuccess(rc)
+                DebugLog.append(context, "ffmpeg rc=$rc success=$ok")
                 if (!ok) {
                     Log.e("MediaProcessor", "ffmpeg failed rc=$rc\n${session.allLogsAsString}")
                 }
