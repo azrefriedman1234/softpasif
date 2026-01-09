@@ -28,46 +28,51 @@ class BackgroundSendWorker(
         val isVideo = inputData.getBoolean("IS_VIDEO", false)
         val fileId = inputData.getInt("FILE_ID", 0)
         val fallbackPath = inputData.getString("FALLBACK_PATH")
+
         val logoUriStr = inputData.getString("LOGO_URI")
         val logoRelX = inputData.getFloat("LOGO_REL_X", 0f)
         val logoRelY = inputData.getFloat("LOGO_REL_Y", 0f)
         val logoRelW = inputData.getFloat("LOGO_REL_W", 0.2f)
+
         val rectsJson = inputData.getString("RECTS_JSON") ?: "[]"
         val rects = parseRects(rectsJson)
 
         DebugLog.append(applicationContext, "BG worker start | target=$target isVideo=$isVideo fileId=$fileId fallback=$fallbackPath rects=${rects.size} hasLogo=${!logoUriStr.isNullOrBlank()}")
 
-        // 1) resolve original input path (prefer fileId; fallback to path)
+        // Resolve ORIGINAL media: prefer FILE_ID. fallbackPath is preview thumbPath.
         val inputPath = resolveOriginalPath(fileId, fallbackPath)
         if (inputPath == null || !File(inputPath).exists()) {
             DebugLog.append(applicationContext, "BG worker FAIL: inputPath missing")
             return Result.failure()
         }
 
-        // 2) decide output
+        val hasEdits = rects.isNotEmpty() || !logoUriStr.isNullOrBlank()
+        if (!hasEdits) {
+            // No edits -> send original immediately
+            return try {
+                TdLibManager.sendFinalMessage(target, caption, inputPath, isVideo)
+                DebugLog.append(applicationContext, "BG worker sent original OK")
+                Result.success()
+            } catch (e: Exception) {
+                DebugLog.appendErr(applicationContext, "BG worker send original FAIL", e)
+                Result.retry()
+            }
+        }
+
         val outExt = if (isVideo) "mp4" else "jpg"
         val outFile = File(applicationContext.cacheDir, "edited_${System.currentTimeMillis()}.$outExt")
         val outPath = outFile.absolutePath
 
-        val hasEdits = rects.isNotEmpty() || !logoUriStr.isNullOrBlank()
-        var success = true
-
-        // 3) process only if there are edits (logo/blur). If none – send original directly.
-        if (hasEdits) {
-            success = if (isVideo) {
-                processVideo(inputPath, outPath, rects, logoUriStr, logoRelX, logoRelY, logoRelW)
-            } else {
-                processImage(inputPath, outPath, rects, logoUriStr, logoRelX, logoRelY, logoRelW)
-            }
-            DebugLog.append(applicationContext, "BG worker processed success=$success out=$outPath")
+        val success = if (isVideo) {
+            processVideo(inputPath, outPath, rects, logoUriStr, logoRelX, logoRelY, logoRelW)
         } else {
-            DebugLog.append(applicationContext, "BG worker: no edits, sending original")
+            processImage(inputPath, outPath, rects, logoUriStr, logoRelX, logoRelY, logoRelW)
         }
 
-        // 4) choose what to send
-        val sendPath = if (hasEdits && success && File(outPath).exists()) outPath else inputPath
+        DebugLog.append(applicationContext, "BG worker processed success=$success out=$outPath")
 
-        // 5) send
+        val sendPath = if (success && File(outPath).exists() && File(outPath).length() > 1024) outPath else inputPath
+
         return try {
             TdLibManager.sendFinalMessage(target, caption, sendPath, isVideo)
             DebugLog.append(applicationContext, "BG worker sendFinalMessage OK | path=$sendPath")
@@ -80,13 +85,9 @@ class BackgroundSendWorker(
 
     private suspend fun resolveOriginalPath(fileId: Int, fallbackPath: String?): String? {
         if (fileId != 0) {
-            // try immediate
-            TdLibManager.getFilePath(fileId)?.let {
-                if (File(it).exists()) return it
-            }
-            // trigger download + poll
+            TdLibManager.getFilePath(fileId)?.let { if (File(it).exists()) return it }
             try { TdLibManager.downloadFile(fileId) } catch (_: Exception) {}
-            for (i in 0..120) { // up to ~60s (500ms)
+            for (i in 0..120) { // ~60s
                 val p = TdLibManager.getFilePath(fileId)
                 if (p != null && File(p).exists() && File(p).length() > 1024) return p
                 delay(500)
@@ -124,7 +125,14 @@ class BackgroundSendWorker(
         lx: Float, ly: Float, lw: Float
     ): Boolean {
         return try {
-            ImageUtils.processImage(applicationContext, input, output, rects, logoUriStr?.let { Uri.parse(it) }, lx, ly, lw)
+            ImageUtils.processImage(
+                applicationContext,
+                input,
+                output,
+                rects,
+                logoUriStr?.let { Uri.parse(it) },
+                lx, ly, lw
+            )
             File(output).exists() && File(output).length() > 1024
         } catch (e: Exception) {
             DebugLog.appendErr(applicationContext, "BG image process FAIL", e)
@@ -152,11 +160,6 @@ class BackgroundSendWorker(
             emptyList()
         }
     }
-            out
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
 
     companion object {
         fun encodeRects(rects: List<BlurRect>): String {
@@ -169,8 +172,6 @@ class BackgroundSendWorker(
                 o.put("bottom", r.bottom)
                 arr.put(o)
             }
-            return arr.toString()
-        }
             return arr.toString()
         }
 
