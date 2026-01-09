@@ -131,8 +131,7 @@ class BackgroundSendWorker(
                 }
             }
             if (inputPath.isNullOrBlank()) inputPath = fallbackPath
-
-            val inputPathStr: String = inputPath ?: run {
+    val inputPathStr: String = inputPath ?: fallbackPath ?: return Result.failure()
                 DebugLog.append(applicationContext, "BG: missing inputPath (fileId=$fileId)")
                 return@withContext Result.failure()
             }
@@ -196,7 +195,7 @@ class BackgroundSendWorker(
         try {
             MediaProcessor.processContent(
                 context = context,
-                inputPath = inputPath,
+                inputPath = inputPathStr,
                 outputPath = outputPath,
                 isVideo = true,
                 blurRects = rects,
