@@ -160,9 +160,10 @@ class DetailsActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 if (!includeMedia) {
-                    TdLibManager.sendFinalMessage(target, caption, localPath, isVideo)clearDraft()
-                    return@launch
-                }
+                      TdLibManager.sendFinalMessage(target, caption, null, false)
+                      clearDraft()
+                      return@launch
+                  }
 
                 // Build a "thumbPath" if missing but we have content uri
                 val thumb = thumbPath ?: mediaUri?.let { copyUriToCache(it) }
@@ -173,8 +174,9 @@ class DetailsActivity : AppCompatActivity() {
                 // Send media using your existing manager signature (keep tolerant)
                 // If your TdLibManager expects more args (blur rects/logo placement), adapt there —
                 // but this Activity keeps the same concepts wired.
-                TdLibManager.sendFinalMessage(target, caption, localPath, isVideo)
-                clearDraft()clearDraft()
+                TdLibManager.sendFinalMessage(target, caption, thumb, isVideo)
+                clearDraft()
+                      clearDraft()
             } catch (_: Exception) {
                 // If we already finished, nothing to show. But avoid leaving overlay stuck if still alive.
                 runOnUiThread {
@@ -216,11 +218,10 @@ class DetailsActivity : AppCompatActivity() {
             }
 
             val arr = o.optJSONArray("rects") ?: JSONArray()
-            val list = ArrayList<RectF>()
+            val list = ArrayList<BlurRect>()
             for (i in 0 until arr.length()) {
                 val jr = arr.getJSONObject(i)
-                list.add(
-                    RectF(
+                list.add(BlurRect(
                         jr.optDouble("l", 0.0).toFloat(),
                         jr.optDouble("t", 0.0).toFloat(),
                         jr.optDouble("r", 0.0).toFloat(),
@@ -349,7 +350,7 @@ class DetailsActivity : AppCompatActivity() {
 
     private fun _logoButton(): android.view.View? {
         // Try both possible IDs so builds don't break if layout changed
-        val id1 = resources.getIdentifier("btnPickLogo", "id", packageName)
+        val id1 = resources.getIdentifier("btnModeLogo", "id", packageName)
         if (id1 != 0) return findViewById(id1)
         val id2 = resources.getIdentifier("btnSelectLogo", "id", packageName)
         if (id2 != 0) return findViewById(id2)
