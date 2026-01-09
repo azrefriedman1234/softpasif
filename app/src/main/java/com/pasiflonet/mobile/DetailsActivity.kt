@@ -118,7 +118,7 @@ class DetailsActivity : AppCompatActivity() {
         } catch (_: Exception) {}
     }
 
-    }
+    
 
     }
 
@@ -442,4 +442,5 @@ private fun performSafeSend() {
         else -> 0L
     }
 
+}
 }
