@@ -136,4 +136,23 @@ class DrawingView @JvmOverloads constructor(
         relativeRects.clear()
         invalidate()
     }
+
+    fun setRects(newRects: List<com.pasiflonet.mobile.BlurRect>) {
+        try {
+            val field = this.javaClass.getDeclaredField("rects").apply { isAccessible = true }
+            val cur = field.get(this)
+            if (cur is MutableList<*>) {
+                @Suppress("UNCHECKED_CAST")
+                val rectList = cur as MutableList<android.graphics.RectF>
+                rectList.clear()
+                for (r in newRects) {
+                    rectList.add(android.graphics.RectF(r.left, r.top, r.right, r.bottom))
+                }
+                invalidate()
+            }
+        } catch (_: Throwable) {
+            // keep silent
+        }
+    }
+
 }

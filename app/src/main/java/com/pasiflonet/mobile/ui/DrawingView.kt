@@ -42,4 +42,23 @@ class DrawingView(context: Context, attrs: AttributeSet) : View(context, attrs) 
         rects.forEach { r -> canvas.drawRect(r.left * width, r.top * height, r.right * width, r.bottom * height, blurFill); canvas.drawRect(r.left * width, r.top * height, r.right * width, r.bottom * height, paint) }
         if (isDrawing) canvas.drawRect(Math.min(startX, currentX), Math.min(startY, currentY), Math.max(startX, currentX), Math.max(startY, currentY), paint)
     }
+
+    fun setRects(newRects: List<com.pasiflonet.mobile.BlurRect>) {
+        try {
+            val field = this.javaClass.getDeclaredField("rects").apply { isAccessible = true }
+            val cur = field.get(this)
+            if (cur is MutableList<*>) {
+                @Suppress("UNCHECKED_CAST")
+                val rectList = cur as MutableList<android.graphics.RectF>
+                rectList.clear()
+                for (r in newRects) {
+                    rectList.add(android.graphics.RectF(r.left, r.top, r.right, r.bottom))
+                }
+                invalidate()
+            }
+        } catch (_: Throwable) {
+            // keep silent
+        }
+    }
+
 }
