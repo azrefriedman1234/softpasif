@@ -1,4 +1,6 @@
 package com.pasiflonet.mobile
+import org.json.JSONObject
+import org.json.JSONArray
 
 import androidx.work.Data
 import com.pasiflonet.mobile.worker.BackgroundSendWorker
