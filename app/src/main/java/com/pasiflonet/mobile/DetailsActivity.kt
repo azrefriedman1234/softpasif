@@ -201,88 +201,49 @@ class DetailsActivity : AppCompatActivity() {
     }
 
     private fun performSafeSend() {
-        b.loadingOverlay.visibility = android.view.View.VISIBLE; b.btnSend.isEnabled = false
-        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE); val target = prefs.getString("target_username", "") ?: ""; val caption = b.etCaption.text.toString(); val includeMedia = b.swIncludeMedia.isChecked; val previewPath = thumbPath
-        if (target.isEmpty()) { safeToast("No target set!"); b.loadingOverlay.visibility = android.view.View.GONE; b.btnSend.isEnabled = true; return }
-        
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                if (!includeMedia) { TdLibManager.sendFinalMessage(target, caption, null, false); clearDraft(); withContext(Dispatchers.Main) { finish() }; return@launch }
-                
-                var finalPath: String? = previewPath
-                // ✅ IMPORTANT:
-                // previewPath = thumbnail for editing UI
-                // finalPath = original file for processing/sending (FILE_ID)
-                if (includeMedia && fileId != 0) {
-                    finalPath = TdLibManager.getFilePath(fileId)
-                    if (finalPath == null || !java.io.File(finalPath).exists()) {
-                        TdLibManager.downloadFile(fileId)
-                        Thread.sleep(2000)
-                        finalPath = TdLibManager.getFilePath(fileId)
-                    }
-                }
+        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        val target = prefs.getString("target_username", "") ?: ""
+        val caption = b.etCaption.text.toString()
+        val includeMedia = b.swIncludeMedia.isChecked
 
-                // ✅ FIX: Edited videos often come as content:// uri - copy to cache to get real file path
-                finalPath = finalPath?.let { ensureLocalFilePath(it, isVideo) } ?: finalPath
-                if (finalPath == null || !File(finalPath).exists()) { if (fileId != 0) { TdLibManager.downloadFile(fileId); Thread.sleep(2000); finalPath = TdLibManager.getFilePath(fileId) } }
-                if (finalPath == null || !File(finalPath).exists()) { withContext(Dispatchers.Main) { safeToast("File not found!"); if (!isFinishing) { b.loadingOverlay.visibility = android.view.View.GONE; b.btnSend.isEnabled = true } }; return@launch }
-
-                finalPath = finalPath?.let { ensureLocalFilePath(it, isVideo) } ?: finalPath
-
-                safeToast(if(isVideo) "Processing..." else "Processing Image...")
-                
-                val rects = ArrayList<BlurRect>()
-                for (r in b.drawingView.rects) rects.add(BlurRect(r.left, r.top, r.right, r.bottom))
-                
-                var logoUri: Uri? = null
-                if (b.ivDraggableLogo.visibility == android.view.View.VISIBLE) {
-                     try {
-                         // מנסים לטעון את הלוגו השמור
-                         val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-                         val savedUriStr = prefs.getString("logo_uri", null)
-                         if (savedUriStr != null) {
-                             val uri = Uri.parse(savedUriStr)
-                             // בדיקה שהקובץ תקין לפני שמתחילים
-                             contentResolver.openInputStream(uri)?.close()
-                             logoUri = uri
-                         } else {
-                             // גיבוי: לא מייצרים Bitmap מהתצוגה (עלול לקרוס בגלל זיכרון). אם אין לוגו שמור פשוט ממשיכים בלי לוגו.
-                             safeToast("No saved logo, sending without logo")
-                         }
-                     } catch(e: Exception) { Log.e("Logo", "Failed to resolve logo", e) }
-                }
-                val outPath = File(cacheDir, "processed_${System.currentTimeMillis()}.${if(isVideo) "mp4" else "jpg"}").absolutePath
-                val relW = if (imageBounds.width() > 0) (b.ivDraggableLogo.width * savedLogoScale) / imageBounds.width() else 0.2f
-
-                val success = if (isVideo) {
-                    processVideoSuspending(applicationContext, finalPath, outPath, rects, logoUri, savedLogoRelX, savedLogoRelY, relW)
-                } else {
-                    ImageUtils.processImage(applicationContext, finalPath, outPath, rects, logoUri, savedLogoRelX, savedLogoRelY, relW)
-                }
-
-                withContext(Dispatchers.Main) {
-                    if (isFinishing || isDestroyed) return@withContext
-                    if (success) { 
-                        safeToast("Sending..."); 
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            runCatching { TdLibManager.sendFinalMessage(target, caption, outPath, isVideo) }
-                                .onFailure { Log.e("Details", "sendFinalMessage failed", it); safeToast("Send failed: ${it.message}") }
-                        }
-                        clearDraft()
-                        finish() 
-                    } else { 
-                        safeToast("Edit failed, sending original...")
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            runCatching { TdLibManager.sendFinalMessage(target, caption, finalPath, isVideo) }
-                                .onFailure { Log.e("Details", "sendFinalMessage failed", it); safeToast("Send failed: ${it.message}") }
-                        }
-                        clearDraft()
-                        finish() 
-                    }
-                }
-            } catch (e: Exception) { withContext(Dispatchers.Main) { safeToast("Error: ${e.message}"); if (!isFinishing) { b.loadingOverlay.visibility = android.view.View.GONE; b.btnSend.isEnabled = true } } }
+        if (target.isEmpty()) {
+            safeToast("No target set!")
+            return
         }
+
+        // Collect edits quickly (no heavy processing here)
+        val rects = ArrayList<BlurRect>()
+        for (r in b.drawingView.rects) rects.add(BlurRect(r.left, r.top, r.right, r.bottom))
+
+        val logoUri: Uri? =
+            if (b.ivDraggableLogo.visibility == android.view.View.VISIBLE) {
+                prefs.getString("logo_uri", null)?.let { Uri.parse(it) }
+            } else null
+
+        val relW =
+            if (imageBounds.width() > 0)
+                ((b.ivDraggableLogo.width * savedLogoScale) / imageBounds.width()).coerceIn(0.02f, 1.0f)
+            else 0.2f
+
+        // ✅ Use original fileId for sending (not thumbnail). If includeMedia off => fileId=0
+        enqueueBackgroundSend(
+            target = target,
+            caption = caption,
+            isVideo = isVideo,
+            fileId = if (includeMedia) fileId else 0,
+            fallbackPath = if (includeMedia) thumbPath else null,
+            rects = rects,
+            logoUri = logoUri,
+            lx = savedLogoRelX,
+            ly = savedLogoRelY,
+            lw = relW
+        )
+
+        safeToast("Queued. Sending in background…")
+        clearDraft()
+        finish() // ✅ Return to table immediately
     }
+
 
     private suspend fun processVideoSuspending(
         ctx: Context, input: String, output: String, rects: List<BlurRect>, logo: Uri?, lx: Float, ly: Float, lw: Float
