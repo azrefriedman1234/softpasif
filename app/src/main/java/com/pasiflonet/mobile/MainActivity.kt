@@ -6,6 +6,10 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
+import java.io.OutputStream
+import android.os.Environment
+import android.content.ContentValues
+import android.provider.MediaStore
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import android.content.ClipData
@@ -203,10 +207,13 @@ class MainActivity : AppCompatActivity() {
                     cm.setPrimaryClip(ClipData.newPlainText("crash_last", txt))
                     Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show()
                 }
-                .setNegativeButton("Clear") { _, _ ->
+                .setNeutralButton("Clear") { _, _ ->
                     f.delete()
                 }
-                .setNeutralButton("Close", null)
+                .setNeutralButton("Export") { _, _ ->
+                    exportCrashToDownloads(txt)
+                }
+                .setNegativeButton("Close", null)
                 .show()
         } catch (_: Exception) {}
     }
@@ -218,6 +225,35 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "✅ smart-exception-java PRESENT (new APK)", Toast.LENGTH_SHORT).show()
         } catch (_: Throwable) {
             Toast.makeText(this, "❌ smart-exception-java MISSING (old APK or build issue)", Toast.LENGTH_LONG).show()
+        }
+    }
+
+
+    private fun exportCrashToDownloads(txt: String) {
+        try {
+            val fileName = "Pasiflonet_crash_last.txt"
+            val resolver = contentResolver
+
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            }
+
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            if (uri == null) {
+                Toast.makeText(this, "Export failed (no uri)", Toast.LENGTH_LONG).show()
+                return
+            }
+
+            resolver.openOutputStream(uri)?.use { os ->
+                os.write(txt.toByteArray(Charsets.UTF_8))
+                os.flush()
+            }
+
+            Toast.makeText(this, "Exported to Downloads: $fileName", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
