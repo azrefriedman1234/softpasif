@@ -13,6 +13,28 @@ import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.abs
 
+
+    // MAP_TO_VIDEO_PX_HELPERS
+    private fun clamp(v: Float, a: Float, b: Float): Float = kotlin.math.max(a, kotlin.math.min(b, v))
+
+    private data class VideoInfo(val w: Int, val h: Int)
+
+    private fun probeVideoSize(inputPath: String): VideoInfo? {
+        // Lightweight: try MediaMetadataRetriever first
+        return try {
+            val mmr = android.media.MediaMetadataRetriever()
+            mmr.setDataSource(inputPath)
+            val w = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
+            val h = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
+            mmr.release()
+            if (w != null && h != null && w > 0 && h > 0) VideoInfo(w, h) else null
+        } catch (_: Exception) { null }
+    }
+
+    private fun relToPxX(rel: Float, vw: Int): Int = (clamp(rel, 0f, 1f) * vw.toFloat()).toInt()
+    private fun relToPxY(rel: Float, vh: Int): Int = (clamp(rel, 0f, 1f) * vh.toFloat()).toInt()
+    
+
 object MediaProcessor {
 
     /**
@@ -32,6 +54,10 @@ object MediaProcessor {
         logoRelW: Float = 0.30f,
         callback: (Boolean) -> Unit
     ) {
+        val vInfo = if (isVideo) probeVideoSize(inputPath) else null
+        val vw = vInfo?.w ?: 0
+        val vh = vInfo?.h ?: 0
+
         // ✅ HARD GUARD: אם ffmpeg-kit חסר לו smart-exception בזמן ריצה, לא לקרוס.
         try {
             Class.forName("com.arthenica.smartexception.java.Exceptions")
@@ -74,7 +100,16 @@ object MediaProcessor {
             return
         }
 
-        val cmd = buildFfmpegCommand(
+                val logoXpx = if (isVideo && vw > 0) relToPxX(logoRelX, vw) else 0
+        val logoYpx = if (isVideo && vh > 0) relToPxY(logoRelY, vh) else 0
+        val logoWpx = if (isVideo && vw > 0) kotlin.math.max(1, (clamp(logoRelW, 0.01f, 1f) * vw.toFloat()).toInt()) else 0
+        val blurPx = if (isVideo && vw > 0 && vh > 0) blurRects.map { r ->
+            val l = (clamp(r.left, 0f, 1f) * vw).toInt(); val t = (clamp(r.top, 0f, 1f) * vh).toInt();
+            val rr = (clamp(r.right, 0f, 1f) * vw).toInt(); val bb = (clamp(r.bottom, 0f, 1f) * vh).toInt();
+            intArrayOf(l, t, rr, bb)
+        } else emptyList()
+
+val cmd = buildFfmpegCommand(
             inputPath = resolvedInput,
             outputPath = outputPath,
             isVideo = isVideo,
