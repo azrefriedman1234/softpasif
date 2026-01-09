@@ -50,6 +50,17 @@ object MediaProcessor {
             callback(false); return
         }
 
+
+        // THUMBNAIL_GUARD_VIDEO_BUT_IMAGE
+        val lowerIn = resolvedInput.lowercase()
+        if (isVideo && (lowerIn.endsWith(".jpg") || lowerIn.endsWith(".jpeg") || lowerIn.endsWith(".png") || lowerIn.endsWith(".webp"))) {
+            DebugLog.append(context, "ERROR: got image thumbnail as video input: $resolvedInput")
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "נבחר Thumbnail במקום וידיאו אמיתי (tdlib/thumbnails). צריך לשלוח את קובץ הוידיאו המקורי.", Toast.LENGTH_LONG).show()
+            }
+            callback(false)
+            return
+        }
         val resolvedLogo = if (hasLogo && !logoPath.isNullOrBlank()) {
             resolveToLocalPath(context, logoPath, false)
         } else null
@@ -85,6 +96,7 @@ object MediaProcessor {
                 DebugLog.append(context, "ffmpeg rc=$rc success=$ok")
                 if (!ok) {
                     Log.e("MediaProcessor", "ffmpeg failed rc=$rc\n${session.allLogsAsString}")
+                    DebugLog.append(context, "ffmpeg logs:\n" + session.allLogsAsString)
                 }
                 callback(ok)
             }
@@ -216,9 +228,9 @@ object MediaProcessor {
         }
 
         if (hasLogo) {
-            // logo scale by relative width of main video
-            sb.append("[1:v]scale=w='main_w*${logoRelW}':h=-1[logo];")
-            sb.append("$stream[logo]overlay=x='main_w*${logoRelX}':y='main_h*${logoRelY}'[outv]")
+            // ✅ scale logo relative to main stream using scale2ref (main_w/main_h valid here)
+            sb.append("[1:v]$stream scale2ref=w='main_w*${logoRelW}':h=-1[logo][base];")
+            sb.append("[base][logo]overlay=x='main_w*${logoRelX}':y='main_h*${logoRelY}'[outv]")
         } else {
             sb.append("$stream null[outv]")
         }
