@@ -118,9 +118,7 @@ class MainActivity : AppCompatActivity() {
             if (fullId != 0) TdLibManager.downloadFile(fullId)
             
             val intent = Intent(this, DetailsActivity::class.java)
-            if (thumbPath != null) intent.putExtra("THUMB_PATH", thumbPath)
-            if (miniThumbData != null) intent.putExtra("MINI_THUMB", miniThumbData)
-            intent.putExtra("THUMB_ID", thumbId)
+            if (thumbPath != null) intent.putExtra("THUMB_PATH", thumbPath)            intent.putExtra("THUMB_ID", thumbId)
             intent.putExtra("FILE_ID", fullId)
             intent.putExtra("IS_VIDEO", isVideo)
             intent.putExtra("CAPTION", caption)
