@@ -49,6 +49,11 @@ class BackgroundSendWorker(
     }
     // AUTO_DOWNLOAD_REAL_VIDEO_HELPERS
 override suspend fun doWork(): Result {
+        // ✅ fallback path from input data (may be null)
+        val fallbackPath = inputData.getString("fallbackPath")
+            ?: inputData.getString("fallback_path")
+            ?: inputData.getString("fallback")
+
         val target = inputData.getString("TARGET") ?: return Result.failure()
         val caption = inputData.getString("CAPTION") ?: ""
         val isVideo = inputData.getBoolean("IS_VIDEO", false)
@@ -75,7 +80,7 @@ override suspend fun doWork(): Result {
                     inputPath = p
                 }
             }
-            if (isVideo && isImagePath(inputPath)) {
+            if (isVideo && isImagePath(inputPathStr)) {
                 DebugLog.append(applicationContext, "BG worker FAIL: thumbnail used as video input: $inputPath")
                 throw IllegalArgumentException("thumbnail-as-video")
             }
@@ -84,6 +89,17 @@ override suspend fun doWork(): Result {
                 throw IllegalArgumentException("inputPath-missing")
             }
         }
+        // ✅ Freeze inputPath to avoid smart-cast issues (inputPath is a var used across lambdas)
+        val inputPathStr = inputPath ?: run {
+            DebugLog.append(applicationContext, "BG worker FAIL: inputPath missing (fileId=$fileId)")
+            return Result.failure()
+        }
+        if (isVideo && isImagePath(inputPathStr)) {
+            DebugLog.append(applicationContext, "BG worker FAIL: thumbnail used as video input: $inputPathStr")
+            return Result.failure()
+        }
+
+
 
         try {
             if (fileId != 0) inputPath = TdLibManager.getFilePath(fileId)
@@ -124,7 +140,7 @@ override suspend fun doWork(): Result {
 
         // Resolve ORIGINAL media: prefer FILE_ID. fallbackPath is preview thumbPath.
 // (removed) inputPath is built above
-        if (inputPath == null || !File(inputPath).exists()) {
+        if (inputPath == null || !File(inputPathStr).exists()) {
             DebugLog.append(applicationContext, "BG worker FAIL: inputPath missing")
             return Result.failure()
         }
