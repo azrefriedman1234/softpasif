@@ -200,77 +200,95 @@ class DetailsActivity : AppCompatActivity() {
         }
     }
 private fun performSafeSend() {
-    // ✅ Return immediately to main screen; processing+send happens in WorkManager.
+    b.loadingOverlay.visibility = android.view.View.VISIBLE
+    b.btnSend.isEnabled = false
+
     val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-    val target = prefs.getString("target_username", "")?.trim().orEmpty()
+    val target = prefs.getString("target_username", "") ?: ""
     val caption = b.etCaption.text.toString()
     val includeMedia = b.swIncludeMedia.isChecked
 
-    if (target.isEmpty()) {
+    if (target.isBlank()) {
         safeToast("No target set!")
+        b.loadingOverlay.visibility = android.view.View.GONE
+        b.btnSend.isEnabled = true
         return
     }
 
-    // Collect rects (relative 0..1)
-    val rects = ArrayList<BlurRect>()
-    for (r in b.drawingView.rects) rects.add(BlurRect(r.left, r.top, r.right, r.bottom))
+    lifecycleScope.launch(Dispatchers.IO) {
+        try {
+            if (!includeMedia) {
+                TdLibManager.sendFinalMessage(target, caption, null, false)
+                clearDraft()
+                runOnUiThread { if (!isFinishing) finish() }
+                return@launch
+            }
 
-    // Logo (use saved uri, not bitmap-from-view)
-    var logoUriStr: String? = null
-    if (includeMedia && b.ivDraggableLogo.visibility == android.view.View.VISIBLE) {
-        runCatching {
-            val savedUriStr = prefs.getString("logo_uri", null)
-            if (!savedUriStr.isNullOrBlank()) {
-                val uri = android.net.Uri.parse(savedUriStr)
-                contentResolver.openInputStream(uri)?.close()
-                logoUriStr = savedUriStr
+            // blur rects (0..1 relative to preview image bounds)
+            val rects = ArrayList<BlurRect>()
+            for (r in b.drawingView.rects) {
+                rects.add(BlurRect(r.left, r.top, r.right, r.bottom))
+            }
+
+            // logo (from saved uri)
+            var logoUri: Uri? = null
+            if (b.ivDraggableLogo.visibility == android.view.View.VISIBLE) {
+                try {
+                    val u = prefs.getString("logo_uri", null)
+                    if (!u.isNullOrBlank()) {
+                        val uri = Uri.parse(u)
+                        contentResolver.openInputStream(uri)?.close()
+                        logoUri = uri
+                    }
+                } catch (_: Exception) {
+                    // no logo
+                }
+            }
+
+            // IMPORTANT: relW should match the exact visual size on preview (scaleX already applied on view)
+            val relW: Float =
+                if (imageBounds.width() > 0f)
+                    (b.ivDraggableLogo.width * b.ivDraggableLogo.scaleX) / imageBounds.width()
+                else 0.2f
+
+            // fallbackPath: if full media not downloaded yet, worker will download by fileId.
+            val fallbackPath: String? = try {
+                if (fileId != 0) TdLibManager.getFilePath(fileId) else thumbPath
+            } catch (_: Exception) {
+                thumbPath
+            }
+
+            // ✅ SEND IN BACKGROUND: close immediately, processing/sending continues in WorkManager
+            enqueueBackgroundSend(
+                target = target,
+                caption = caption,
+                isVideo = isVideo,
+                fileId = fileId,
+                fallbackPath = fallbackPath,
+                rects = rects,
+                logoUri = logoUri,
+                lx = savedLogoRelX,
+                ly = savedLogoRelY,
+                lw = relW
+            )
+
+            clearDraft()
+            runOnUiThread { if (!isFinishing) finish() }
+            return@launch
+
+        } catch (t: Throwable) {
+            android.util.Log.e("Details", "performSafeSend failed", t)
+            runOnUiThread {
+                safeToast("Send failed: ${t.message ?: "unknown"}")
+                if (!isFinishing) {
+                    b.loadingOverlay.visibility = android.view.View.GONE
+                    b.btnSend.isEnabled = true
+                }
             }
         }
     }
-
-    val relW = if (imageBounds.width() > 0)
-
-                  // ✅ SEND IN BACKGROUND: close immediately, processing/sending continues in WorkManager
-                  enqueueBackgroundSend(
-                      target = target,
-                      caption = caption,
-                      isVideo = isVideo,
-                      fileId = fileId,
-                      fallbackPath = finalPath,
-                      rects = rects,
-                      logoUri = logoUri,
-                      lx = savedLogoRelX,
-                      ly = savedLogoRelY,
-                      lw = relW
-                  )
-                  clearDraft()
-                  runOnUiThread { if (!isFinishing) finish() }
-                  return@launch
-
-
-
-        (b.ivDraggableLogo.width * savedLogoScale) / imageBounds.width()
-    else 0.2f
-
-    // enqueue background work
-    enqueueBackgroundSend(
-        target = target,
-        caption = caption,
-        isVideo = isVideo,
-        fileId = if (includeMedia) fileId else 0,
-        fallbackPath = if (includeMedia) thumbPath else null,
-        rects = rects,
-        logoUri = logoUriStr?.let { android.net.Uri.parse(it) },
-        lx = savedLogoRelX,
-        ly = savedLogoRelY,
-        lw = relW
-    )
-
-    // ✅ UX: return immediately
-    safeToast("נשלח ברקע…")
-    clearDraft()
-    finish()
 }
+
 
 
 
