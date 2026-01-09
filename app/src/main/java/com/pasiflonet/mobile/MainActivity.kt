@@ -40,6 +40,8 @@ class MainActivity : AppCompatActivity() {
         try {
             b = ActivityMainBinding.inflate(layoutInflater)
             setContentView(b.root)
+        // AUTO_EXPORT_DEBUG_LOG_ON_START
+        exportDebugLogToDownloads()
         showSmartExceptionStatus()
         showLastCrashIfAny()
         } catch (e: Exception) {
