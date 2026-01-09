@@ -216,6 +216,9 @@ private fun performSafeSend() {
     }
 
     lifecycleScope.launch(Dispatchers.IO) {
+            // FINISH_IMMEDIATELY_AFTER_SEND: לא להיתקע במסך Details
+            runOnUiThread { if (!isFinishing) finish() }
+
         try {
             if (!includeMedia) {
                 TdLibManager.sendFinalMessage(target, caption, null, false)
