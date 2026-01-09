@@ -126,11 +126,8 @@ class DetailsActivity : AppCompatActivity() {    private var fileId: Long = 0L
         } catch (_: Exception) {}
     }
 
-    
-
-    }
-
-    private fun restoreDraft(): Boolean {
+    // --- moved back inside DetailsActivity to fix CI (was outside class) ---
+private fun restoreDraft(): Boolean {
         return try {
             val prefs = getSharedPreferences("draft_prefs", MODE_PRIVATE)
             val path = prefs.getString("draft_path", null)
@@ -232,7 +229,7 @@ catch (_: Exception) {}
                     val ext = if (isVideo) "mp4" else "bin"
                     val out = java.io.File(cacheDir, "in_${System.currentTimeMillis()}.$ext")
                     contentResolver.openInputStream(uri)?.use { input ->
-                        java.io.FileOutputStream(out).use { output ->
+                        java.io.FileOutputStream(out as File).use { output ->
                             input.copyTo(output)
                         }
                     } ?: return null
@@ -451,4 +448,6 @@ private fun performSafeSend() {
     }
 
 }
+}
+
 }
