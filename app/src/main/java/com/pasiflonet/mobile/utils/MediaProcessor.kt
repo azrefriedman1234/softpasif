@@ -162,7 +162,7 @@ object MediaProcessor {
 
     private fun clamp01(v: Float): Float = v.coerceIn(0f, 1f)
 
-    private fun resolveToLocalPath(context: Context, pathOrUri: String, isVideo: Boolean): String? {
+    private fun resolveToLocalPath(context: Context, pathOrUri: String, isVideo: Boolean = false): String? {
         return try {
             when {
                 pathOrUri.startsWith("content://") -> {
