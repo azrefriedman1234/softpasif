@@ -313,8 +313,8 @@ class DetailsActivity : AppCompatActivity() {
         logoUri: Uri?,
         lx: Float, ly: Float, lw: Float
     ) {
-        val rectsJson = BackgroundSendWorker.BackgroundSendWorker.encodeRects(rects)
-        val input = BackgroundSendWorker.BackgroundSendWorker.buildInput(
+        val rectsJson = BackgroundSendWorker.encodeRects(rects)
+        val input = BackgroundSendWorker.buildInput(
             target = target,
             caption = caption,
             isVideo = isVideo,
