@@ -140,13 +140,18 @@ class BackgroundSendWorker(
                 val o = arr.getJSONObject(i)
                 out.add(
                     BlurRect(
-                        x = o.getDouble("x").toFloat(),
-                        y = o.getDouble("y").toFloat(),
-                        w = o.getDouble("w").toFloat(),
-                        h = o.getDouble("h").toFloat()
+                        left = o.getDouble("left").toFloat(),
+                        top = o.getDouble("top").toFloat(),
+                        right = o.getDouble("right").toFloat(),
+                        bottom = o.getDouble("bottom").toFloat()
                     )
                 )
             }
+            out
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
             out
         } catch (_: Exception) {
             emptyList()
@@ -158,12 +163,14 @@ class BackgroundSendWorker(
             val arr = JSONArray()
             for (r in rects) {
                 val o = JSONObject()
-                o.put("x", r.x)
-                o.put("y", r.y)
-                o.put("w", r.w)
-                o.put("h", r.h)
+                o.put("left", r.left)
+                o.put("top", r.top)
+                o.put("right", r.right)
+                o.put("bottom", r.bottom)
                 arr.put(o)
             }
+            return arr.toString()
+        }
             return arr.toString()
         }
 
