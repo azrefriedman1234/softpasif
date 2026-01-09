@@ -1,6 +1,9 @@
 package com.pasiflonet.mobile
 
 import android.content.Context
+import com.pasiflonet.mobile.worker.BackgroundSendWorker
+import androidx.work.WorkManager
+import androidx.work.OneTimeWorkRequestBuilder
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -299,4 +302,33 @@ class DetailsActivity : AppCompatActivity() {
             cont.resume(result)
         }
     }
+
+    private fun enqueueBackgroundSend(
+        target: String,
+        caption: String,
+        isVideo: Boolean,
+        fileId: Int,
+        fallbackPath: String?,
+        rects: List<BlurRect>,
+        logoUri: Uri?,
+        lx: Float, ly: Float, lw: Float
+    ) {
+        val rectsJson = BackgroundSendWorker.encodeRects(rects)
+        val input = BackgroundSendWorker.buildInput(
+            target = target,
+            caption = caption,
+            isVideo = isVideo,
+            fileId = fileId,
+            fallbackPath = fallbackPath,
+            rectsJson = rectsJson,
+            logoUri = logoUri?.toString(),
+            lx = lx, ly = ly, lw = lw
+        )
+        val req = OneTimeWorkRequestBuilder<BackgroundSendWorker>()
+            .setInputData(input)
+            .addTag("send_bg")
+            .build()
+        WorkManager.getInstance(applicationContext).enqueue(req)
+    }
+
 }
