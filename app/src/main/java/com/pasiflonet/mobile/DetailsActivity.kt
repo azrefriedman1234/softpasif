@@ -267,7 +267,18 @@ class DetailsActivity : AppCompatActivity() {
     private suspend fun processVideoSuspending(
         ctx: Context, input: String, output: String, rects: List<BlurRect>, logo: Uri?, lx: Float, ly: Float, lw: Float
     ): Boolean = suspendCoroutine { cont ->
-        MediaProcessor.processContent(ctx, input, output, true, rects, logo, lx, ly, lw) { result ->
+        MediaProcessor.processContent(
+                        context = ctx,
+                        inputPath = input,
+                        outputPath = output,
+                        isVideo = true,
+                        blurRects = rects,
+                        hasLogo = (logo != null),
+                        logoPath = logo?.toString(),
+                        logoRelX = lx,
+                        logoRelY = ly,
+                        logoRelW = lw
+                    ) { result ->
             cont.resume(result)
         }
     }

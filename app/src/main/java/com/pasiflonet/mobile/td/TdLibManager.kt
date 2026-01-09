@@ -97,7 +97,18 @@ object TdLibManager {
             
             showToast("⏳ Processing Media...")
             
-            MediaProcessor.processContent(ctx, inputPath!!, outPath, isVideo, rects, logoUri, lX, lY, lScale) { success ->
+            MediaProcessor.processContent(
+                        context = ctx,
+                        inputPath = inputPath!!,
+                        outputPath = outPath,
+                        isVideo = isVideo,
+                        blurRects = rects,
+                        hasLogo = (logoUri != null),
+                        logoPath = logoUri?.toString(),
+                        logoRelX = lX,
+                        logoRelY = lY,
+                        logoRelW = lScale
+                    ) { success ->
                 if (success) {
                     if (File(outPath).exists() && File(outPath).length() > 0) {
                         sendFinalMessage(targetUsername, caption, outPath, isVideo)
