@@ -61,4 +61,21 @@ class DrawingView(context: Context, attrs: AttributeSet) : View(context, attrs) 
         }
     }
 
+
+    fun setRects(newRects: List<android.graphics.RectF>) {
+        try {
+            val field = this.javaClass.getDeclaredField("rects").apply { isAccessible = true }
+            val cur = field.get(this)
+            if (cur is MutableList<*>) {
+                @Suppress("UNCHECKED_CAST")
+                val rectList = cur as MutableList<android.graphics.RectF>
+                rectList.clear()
+                rectList.addAll(newRects)
+                invalidate()
+            }
+        } catch (_: Throwable) {
+            // keep silent
+        }
+    }
+
 }

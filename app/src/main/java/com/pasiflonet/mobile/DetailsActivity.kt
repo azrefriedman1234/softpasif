@@ -79,7 +79,7 @@ class DetailsActivity : AppCompatActivity() {
 
         // Logo pick button (if exists in your layout binding)
         runCatching {
-            b.btnPickLogo.setOnClickListener {
+            b.btnModeLogo.setOnClickListener {
                 pickLogoLauncher.launch(arrayOf("image/*"))
             }
         }
@@ -159,8 +159,7 @@ class DetailsActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 if (!includeMedia) {
-                    TdLibManager.sendFinalMessage(target, caption, null, false)
-                    clearDraft()
+                    TdLibManager.sendFinalMessage(target, caption, null, isVideo)clearDraft()
                     return@launch
                 }
 
@@ -173,19 +172,7 @@ class DetailsActivity : AppCompatActivity() {
                 // Send media using your existing manager signature (keep tolerant)
                 // If your TdLibManager expects more args (blur rects/logo placement), adapt there —
                 // but this Activity keeps the same concepts wired.
-                TdLibManager.sendFinalMessage(
-                    target = target,
-                    caption = caption,
-                    localPath = thumb,
-                    isVideo = isVideo,
-                    blurRects = rects,
-                    logoUri = logoUri,
-                    logoRelX = savedLogoRelX,
-                    logoRelY = savedLogoRelY,
-                    logoScale = savedLogoScale
-                )
-
-                clearDraft()
+                TdLibManager.sendFinalMessage(target, caption, localPath, isVideo)clearDraft()
             } catch (_: Exception) {
                 // If we already finished, nothing to show. But avoid leaving overlay stuck if still alive.
                 runOnUiThread {
