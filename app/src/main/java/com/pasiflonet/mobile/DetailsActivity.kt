@@ -1,5 +1,6 @@
 package com.pasiflonet.mobile
 
+import androidx.work.Data
 import com.pasiflonet.mobile.worker.BackgroundSendWorker
 import android.content.Context
 import androidx.work.WorkManager
@@ -346,6 +347,49 @@ private fun performSafeSend() {
             .addTag("send_bg")
             .build()
         WorkManager.getInstance(applicationContext).enqueue(req)
+    }
+
+
+    // --- Added to fix CI: encodeRects/buildInput used by background send wiring ---
+
+    private fun encodeRects(rects: List<BlurRect>): String {
+        // JSON: [{l,t,r,b}, ...]  (relative coords expected by processor)
+        val arr = org.json.JSONArray()
+        for (r in rects) {
+            val o = org.json.JSONObject()
+            o.put("l", r.left)
+            o.put("t", r.top)
+            o.put("r", r.right)
+            o.put("b", r.bottom)
+            arr.put(o)
+        }
+        return arr.toString()
+    }
+
+    private fun buildInput(
+        target: String,
+        caption: String,
+        isVideo: Boolean,
+        fileId: Long,
+        fallbackPath: String?,
+        rectsJson: String?,
+        logoUriStr: String?,
+        lx: Float,
+        ly: Float,
+        lw: Float
+    ): Data {
+        return Data.Builder()
+            .putString(com.pasiflonet.mobile.worker.BackgroundSendWorker.KEY_TARGET, target)
+            .putString(com.pasiflonet.mobile.worker.BackgroundSendWorker.KEY_CAPTION, caption)
+            .putBoolean(com.pasiflonet.mobile.worker.BackgroundSendWorker.KEY_IS_VIDEO, isVideo)
+            .putLong(com.pasiflonet.mobile.worker.BackgroundSendWorker.KEY_FILE_ID, fileId)
+            .putString(com.pasiflonet.mobile.worker.BackgroundSendWorker.KEY_FALLBACK_PATH, fallbackPath)
+            .putString(com.pasiflonet.mobile.worker.BackgroundSendWorker.KEY_RECTS_JSON, rectsJson)
+            .putString(com.pasiflonet.mobile.worker.BackgroundSendWorker.KEY_LOGO_URI, logoUriStr)
+            .putFloat(com.pasiflonet.mobile.worker.BackgroundSendWorker.KEY_LX, lx)
+            .putFloat(com.pasiflonet.mobile.worker.BackgroundSendWorker.KEY_LY, ly)
+            .putFloat(com.pasiflonet.mobile.worker.BackgroundSendWorker.KEY_LW, lw)
+            .build()
     }
 
 }

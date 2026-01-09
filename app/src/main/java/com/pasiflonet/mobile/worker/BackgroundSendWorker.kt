@@ -9,7 +9,6 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.pasiflonet.mobile.td.TdLibManager
-import com.pasiflonet.mobile.utils.ImageUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -27,7 +26,8 @@ class BackgroundSendWorker(
             val target = inputData.getString(KEY_TARGET).orEmpty()
             val caption = inputData.getString(KEY_CAPTION).orEmpty()
             val isVideo = inputData.getBoolean(KEY_IS_VIDEO, false)
-            val fileId = inputData.getLong(KEY_FILE_ID, 0L)
+            val fileIdLong = inputData.getLong(KEY_FILE_ID, 0L)
+            val fileId = fileIdLong.toInt()
             val fallbackPath = inputData.getString(KEY_FALLBACK_PATH)
 
             val lx = inputData.getFloat(KEY_LX, 0f)
@@ -47,7 +47,7 @@ class BackgroundSendWorker(
 
             // Resolve input path
             var inputPath: String? = null
-            if (fileId != 0L) {
+            if (fileId != 0) {
                 inputPath = TdLibManager.getFilePath(fileId)
                 if (inputPath.isNullOrBlank() || !File(inputPath).exists()) {
                     TdLibManager.downloadFile(fileId)
@@ -96,16 +96,7 @@ class BackgroundSendWorker(
                     )
                 } else {
                     try {
-                        ImageUtils.processImage(
-                            applicationContext,
-                            inputPath!!,
-                            outPath,
-                            rects,
-                            logoUri,
-                            lx,
-                            ly,
-                            lw
-                        )
+                        tryProcessImageReflective(applicationContext, inputPath!!, outPath, rects, logoUri, lx, ly, lw)
                     } catch (t: Throwable) {
                         Log.e(TAG, "ImageUtils.processImage failed", t)
                         false
