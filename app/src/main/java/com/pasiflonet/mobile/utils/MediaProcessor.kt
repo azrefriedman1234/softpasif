@@ -86,6 +86,7 @@ object MediaProcessor {
         val cmd = buildFfmpegCommand(
             inputPath = resolvedInput,
             outputPath = outputPath,
+              isVideo = isVideo,
             rects = rects,
             logoPath = resolvedLogo,
             logoRelX = clamp01(logoRelX),
