@@ -84,7 +84,8 @@ class DetailsActivity : AppCompatActivity() {
             if (intentThumb != null || intentCaption != null) {
                 thumbPath = intentThumb
                 val miniThumb = intent.getByteArrayExtra("MINI_THUMB")
-                asLongId(fileId = intent).getIntExtra("FILE_ID", 0); thumbId = intent.getIntExtra("THUMB_ID", 0)
+        fileId = intent.getLongExtra("FILE_ID", intent.getIntExtra("FILE_ID", 0).toLong())
+        thumbId = intent.getLongExtra("THUMB_ID", intent.getIntExtra("THUMB_ID", 0).toLong())
                 isVideo = intent.getBooleanExtra("IS_VIDEO", false)
                 b.etCaption.setText(intentCaption ?: "")
                 if (miniThumb != null) b.ivPreview.load(miniThumb)
@@ -92,7 +93,11 @@ class DetailsActivity : AppCompatActivity() {
             } else { if (restoreDraft()) safeToast("♻️ Restored session") }
             
             val targetId = if (thumbId != 0) thumbId else fileId
-            if (targetId != (0) startHDImageHunter(targetId) else if (thumbPath != null) loadSharpImage(thumbPath!!)).toInt()
+        if (targetId != 0L) {
+            startHDImageHunter(targetId)
+        } else if (thumbPath != null) {
+            loadSharpImage(thumbPath!!)
+        }
             if (targetId == 0 && thumbPath.isNullOrEmpty()) { b.swIncludeMedia.isChecked = false; b.swIncludeMedia.isEnabled = false }
             
             b.ivPreview.viewTreeObserver.addOnGlobalLayoutListener { calculateMatrixBounds(); if (b.ivDraggableLogo.visibility == android.view.View.VISIBLE) restoreLogoPosition() }
@@ -101,9 +106,40 @@ class DetailsActivity : AppCompatActivity() {
             
         } catch (e: Exception) { safeToast("Init Error: ${e.message}") }
     }
+    private fun saveDraft() {
+        try {
+            val prefs = getSharedPreferences("draft_prefs", MODE_PRIVATE)
+            prefs.edit()
+                .putString("draft_caption", b.etCaption.text.toString())
+                .putString("draft_path", thumbPath)
+                .putBoolean("draft_is_video", isVideo)
+                .putLong("draft_file_id", fileId)
+                .apply()
+        } catch (_: Exception) {}
+    }
 
-    private fun saveDraft() { try { getSharedPreferences("draft_prefs", MODE_PRIVATE).edit().putString("draft_caption", b.etCaption.text.toString()).putString("draft_path", thumbPath).putBoolean("draft_is_video", isVideo).putInt("draft_file_id", fileId).apply() } catch (e: Exception) {} }
-    asLongId(private fun restoreDraft(): Boolean { val prefs = getSharedPreferences("draft_prefs", MODE_PRIVATE); val path = prefs.getString("draft_path", null); if (path != null || prefs.getString("draft_caption", "")!!.isNotEmpty()) { thumbPath = path; isVideo = prefs.getBoolean("draft_is_video", false); fileId = prefs).getInt("draft_file_id", 0); b.etCaption.setText(prefs.getString("draft_caption", "")); if (path != null) loadSharpImage(path); return true }; return false }
+    }
+
+    }
+
+    private fun restoreDraft(): Boolean {
+        return try {
+            val prefs = getSharedPreferences("draft_prefs", MODE_PRIVATE)
+            val path = prefs.getString("draft_path", null)
+            val caption = prefs.getString("draft_caption", "") ?: ""
+            val has = (path != null) || caption.isNotEmpty()
+            if (!has) return false
+            thumbPath = path
+            isVideo = prefs.getBoolean("draft_is_video", false)
+            fileId = prefs.getLong("draft_file_id", prefs.getInt("draft_file_id", 0).toLong())
+            b.etCaption.setText(caption)
+            if (path != null) loadSharpImage(path)
+            true
+        } catch (_: Exception) { false }
+    }
+catch (_: Exception) {}
+    }
+
     private fun clearDraft() { getSharedPreferences("draft_prefs", MODE_PRIVATE).edit().clear().apply() }
     private fun safeToast(msg: String) { runOnUiThread { if (!isFinishing && !isDestroyed) Toast.makeText(applicationContext, msg, Toast.LENGTH_LONG).show() } }
     
@@ -259,7 +295,7 @@ private fun performSafeSend() {
 
             // fallbackPath: if full media not downloaded yet, worker will download by fileId.
             val fallbackPath: String? = try {
-                if (fileId != (0) TdLibManager.getFilePath(fileId) else thumbPath).toInt()
+        val p = if (fileId != 0L) TdLibManager.getFilePath(fileId) else thumbPath
             } catch (_: Exception) {
                 thumbPath
             }
