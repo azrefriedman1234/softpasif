@@ -138,7 +138,7 @@ object TdLibManager {
                 TdApi.InputMessageDocument(f, null, false, caption)
             }
 
-        client?.send(TdApi.SendMessage(chatId, null, null, TdApi.MessageSendOptions(false, false, null, false, false), null, content)) { /* noop */ }
+        client?.send(TdApi.SendMessage(chatId.toLong(), null, null, TdApi.MessageSendOptions(), null, content)) { /* noop */ }
     }
 
 }
