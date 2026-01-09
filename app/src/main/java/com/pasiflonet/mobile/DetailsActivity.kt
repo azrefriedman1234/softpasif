@@ -85,7 +85,7 @@ class DetailsActivity : AppCompatActivity() {
                 saveDraft()
             } else { if (restoreDraft()) safeToast("♻️ Restored session") }
             
-            val targetId = if (fileId != 0) fileId else thumbId
+            val targetId = if (thumbId != 0) thumbId else fileId
             if (targetId != 0) startHDImageHunter(targetId) else if (thumbPath != null) loadSharpImage(thumbPath!!)
             if (targetId == 0 && thumbPath.isNullOrEmpty()) { b.swIncludeMedia.isChecked = false; b.swIncludeMedia.isEnabled = false }
             
@@ -193,14 +193,25 @@ class DetailsActivity : AppCompatActivity() {
 
     private fun performSafeSend() {
         b.loadingOverlay.visibility = android.view.View.VISIBLE; b.btnSend.isEnabled = false
-        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE); val target = prefs.getString("target_username", "") ?: ""; val caption = b.etCaption.text.toString(); val includeMedia = b.swIncludeMedia.isChecked; val currentPath = thumbPath
+        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE); val target = prefs.getString("target_username", "") ?: ""; val caption = b.etCaption.text.toString(); val includeMedia = b.swIncludeMedia.isChecked; val previewPath = thumbPath
         if (target.isEmpty()) { safeToast("No target set!"); b.loadingOverlay.visibility = android.view.View.GONE; b.btnSend.isEnabled = true; return }
         
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 if (!includeMedia) { TdLibManager.sendFinalMessage(target, caption, null, false); clearDraft(); withContext(Dispatchers.Main) { finish() }; return@launch }
                 
-                var finalPath = currentPath
+                var finalPath: String? = previewPath
+                // ✅ IMPORTANT:
+                // previewPath = thumbnail for editing UI
+                // finalPath = original file for processing/sending (FILE_ID)
+                if (includeMedia && fileId != 0) {
+                    finalPath = TdLibManager.getFilePath(fileId)
+                    if (finalPath == null || !java.io.File(finalPath).exists()) {
+                        TdLibManager.downloadFile(fileId)
+                        Thread.sleep(2000)
+                        finalPath = TdLibManager.getFilePath(fileId)
+                    }
+                }
 
                 // ✅ FIX: Edited videos often come as content:// uri - copy to cache to get real file path
                 finalPath = finalPath?.let { ensureLocalFilePath(it, isVideo) } ?: finalPath
