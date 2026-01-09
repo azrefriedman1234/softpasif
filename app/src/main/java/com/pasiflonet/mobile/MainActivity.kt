@@ -118,12 +118,14 @@ class MainActivity : AppCompatActivity() {
             if (fullId != 0) TdLibManager.downloadFile(fullId)
             
             val intent = Intent(this, DetailsActivity::class.java)
-            if (thumbPath != null) intent.putExtra("THUMB_PATH", thumbPath)            intent.putExtra("THUMB_ID", thumbId)
+            // ✅ Preview uses Telegram thumbnail (still image), sending uses FILE_ID (full media)
+            if (thumbPath != null) intent.putExtra("THUMB_PATH", thumbPath)
+            intent.putExtra("THUMB_ID", thumbId)
             intent.putExtra("FILE_ID", fullId)
             intent.putExtra("IS_VIDEO", isVideo)
             intent.putExtra("CAPTION", caption)
             startActivity(intent)
-        }
+}
         
         b.rvMessages.layoutManager = LinearLayoutManager(this)
         b.rvMessages.adapter = adapter
