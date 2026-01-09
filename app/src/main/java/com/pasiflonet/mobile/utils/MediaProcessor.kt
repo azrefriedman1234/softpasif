@@ -6,40 +6,16 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
-import com.pasiflonet.mobile.utils.DebugLog
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
 import java.io.File
 import java.io.FileOutputStream
-import kotlin.math.abs
-
-
-    // MAP_TO_VIDEO_PX_HELPERS
-    private fun clamp(v: Float, a: Float, b: Float): Float = kotlin.math.max(a, kotlin.math.min(b, v))
-
-    private data class VideoInfo(val w: Int, val h: Int)
-
-    private fun probeVideoSize(inputPath: String): VideoInfo? {
-        // Lightweight: try MediaMetadataRetriever first
-        return try {
-            val mmr = android.media.MediaMetadataRetriever()
-            mmr.setDataSource(inputPath)
-            val w = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
-            val h = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
-            mmr.release()
-            if (w != null && h != null && w > 0 && h > 0) VideoInfo(w, h) else null
-        } catch (_: Exception) { null }
-    }
-
-    private fun relToPxX(rel: Float, vw: Int): Int = (clamp(rel, 0f, 1f) * vw.toFloat()).toInt()
-    private fun relToPxY(rel: Float, vh: Int): Int = (clamp(rel, 0f, 1f) * vh.toFloat()).toInt()
-    
 
 object MediaProcessor {
 
     /**
-     * blurRects: מקבל כל List (RectF או data class עם left/top/right/bottom).
-     * הערכים מצופים להיות יחסיים (0..1). אם לא, אנחנו עדיין נ-clamp כדי לא לקרוס.
+     * blurRects: מצופה להיות ערכים יחסיים (0..1) של left/top/right/bottom.
+     * logoRelX/Y/W: גם יחסיים (0..1) ביחס לרוחב/גובה הווידאו.
      */
     fun processContent(
         context: Context,
@@ -54,39 +30,46 @@ object MediaProcessor {
         logoRelW: Float = 0.30f,
         callback: (Boolean) -> Unit
     ) {
-        val vInfo = if (isVideo) probeVideoSize(inputPath) else null
-        val vw = vInfo?.w ?: 0
-        val vh = vInfo?.h ?: 0
-
-        // ✅ HARD GUARD: אם ffmpeg-kit חסר לו smart-exception בזמן ריצה, לא לקרוס.
+        // ✅ HARD GUARD: אם ל-ffmpeg-kit חסר smart-exception בזמן ריצה, לא לקרוס.
         try {
             Class.forName("com.arthenica.smartexception.java.Exceptions")
         } catch (t: Throwable) {
             Log.e("MediaProcessor", "Missing smart-exception-java (Exceptions). FFmpeg disabled.", t)
             Handler(Looper.getMainLooper()).post {
-                Toast.makeText(context, "FFmpegKit missing dependency (smart-exception). Install NEW APK build.", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    context,
+                    "FFmpegKit missing dependency (smart-exception). Install NEW APK build.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
             callback(false)
             return
         }
 
-        DebugLog.append(context, "processContent start | isVideo=$isVideo | in=$inputPath | out=$outputPath | rects=${blurRects.size} | hasLogo=$hasLogo")
+        DebugLog.append(
+            context,
+            "processContent start | isVideo=$isVideo | in=$inputPath | out=$outputPath | rects=${blurRects.size} | hasLogo=$hasLogo"
+        )
 
         val resolvedInput = resolveToLocalPath(context, inputPath, isVideo) ?: run {
             callback(false); return
         }
-
 
         // THUMBNAIL_GUARD_VIDEO_BUT_IMAGE
         val lowerIn = resolvedInput.lowercase()
         if (isVideo && (lowerIn.endsWith(".jpg") || lowerIn.endsWith(".jpeg") || lowerIn.endsWith(".png") || lowerIn.endsWith(".webp"))) {
             DebugLog.append(context, "ERROR: got image thumbnail as video input: $resolvedInput")
             Handler(Looper.getMainLooper()).post {
-                Toast.makeText(context, "נבחר Thumbnail במקום וידיאו אמיתי (tdlib/thumbnails). צריך לשלוח את קובץ הוידיאו המקורי.", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    context,
+                    "נבחר Thumbnail במקום וידיאו אמיתי (tdlib/thumbnails). צריך לשלוח את קובץ הוידיאו המקורי.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
             callback(false)
             return
         }
+
         val resolvedLogo = if (hasLogo && !logoPath.isNullOrBlank()) {
             resolveToLocalPath(context, logoPath, false)
         } else null
@@ -95,35 +78,24 @@ object MediaProcessor {
             .filter { it.w > 0.0005f && it.h > 0.0005f }
 
         // אם אין שום עיבוד — פשוט נעתיק קובץ
-        if (rects.isEmpty() && !hasLogo) {
-            if (fallbackCopy(context, resolvedInput, outputPath)) callback(true) else callback(false)
+        if (rects.isEmpty() && resolvedLogo.isNullOrBlank()) {
+            callback(fallbackCopy(resolvedInput, outputPath))
             return
         }
 
-                val logoXpx = if (isVideo && vw > 0) relToPxX(logoRelX, vw) else 0
-        val logoYpx = if (isVideo && vh > 0) relToPxY(logoRelY, vh) else 0
-        val logoWpx = if (isVideo && vw > 0) kotlin.math.max(1, (clamp(logoRelW, 0.01f, 1f) * vw.toFloat()).toInt()) else 0
-        val blurPx = if (isVideo && vw > 0 && vh > 0) blurRects.map { r ->
-            val l = (clamp(r.left, 0f, 1f) * vw).toInt(); val t = (clamp(r.top, 0f, 1f) * vh).toInt();
-            val rr = (clamp(r.right, 0f, 1f) * vw).toInt(); val bb = (clamp(r.bottom, 0f, 1f) * vh).toInt();
-            intArrayOf(l, t, rr, bb)
-        } else emptyList()
-
-val cmd = buildFfmpegCommand(
+        val cmd = buildFfmpegCommand(
             inputPath = resolvedInput,
             outputPath = outputPath,
-            isVideo = isVideo,
             rects = rects,
             logoPath = resolvedLogo,
             logoRelX = clamp01(logoRelX),
             logoRelY = clamp01(logoRelY),
-            logoRelW = logoRelW.coerceIn(0.05f, 1.0f)
+            logoRelW = logoRelW.coerceIn(0.02f, 1.0f)
         )
 
         Log.d("MediaProcessor", "ffmpeg cmd: $cmd")
         DebugLog.append(context, "ffmpeg cmd: $cmd")
 
-        // EXTRA SAFETY: גם אם משהו עדיין חסר – לא לקרוס.
         try {
             FFmpegKit.executeAsync(cmd) { session ->
                 val rc = session.returnCode
@@ -149,36 +121,33 @@ val cmd = buildFfmpegCommand(
     private data class RelRect(val x: Float, val y: Float, val w: Float, val h: Float)
 
     private fun Any.toRelRectOrNull(): RelRect? {
-        // תומך גם ב-android.graphics.RectF וגם data class עם left/top/right/bottom
         val left = getFloatProp("left") ?: return null
         val top = getFloatProp("top") ?: return null
         val right = getFloatProp("right") ?: return null
         val bottom = getFloatProp("bottom") ?: return null
 
-        val x = clamp01(left)
-        val y = clamp01(top)
-        val w = clamp01(right) - clamp01(left)
-        val h = clamp01(bottom) - clamp01(top)
+        val l = clamp01(left)
+        val t = clamp01(top)
+        val r = clamp01(right)
+        val b = clamp01(bottom)
 
-        return RelRect(
-            x = x,
-            y = y,
-            w = w.coerceIn(0f, 1f),
-            h = h.coerceIn(0f, 1f)
-        )
+        val w = (r - l).coerceIn(0f, 1f)
+        val h = (b - t).coerceIn(0f, 1f)
+        if (w <= 0.0005f || h <= 0.0005f) return null
+
+        return RelRect(x = l, y = t, w = w, h = h)
     }
 
     private fun Any.getFloatProp(name: String): Float? {
         return try {
-            // getter
-            val m = this.javaClass.methods.firstOrNull { it.name.equals("get${name.replaceFirstChar { it.uppercase() }}") && it.parameterTypes.isEmpty() }
-            if (m != null) return (m.invoke(this) as Number).toFloat()
+            val getter = this.javaClass.methods.firstOrNull {
+                it.name.equals("get${name.replaceFirstChar { c -> c.uppercase() }}") && it.parameterTypes.isEmpty()
+            }
+            if (getter != null) return (getter.invoke(this) as Number).toFloat()
 
-            // public field
             val f = this.javaClass.fields.firstOrNull { it.name == name }
             if (f != null) return (f.get(this) as Number).toFloat()
 
-            // declared field
             val df = this.javaClass.declaredFields.firstOrNull { it.name == name }
             if (df != null) {
                 df.isAccessible = true
@@ -214,7 +183,7 @@ val cmd = buildFfmpegCommand(
         }
     }
 
-    private fun fallbackCopy(context: Context, inputPath: String, outputPath: String): Boolean {
+    private fun fallbackCopy(inputPath: String, outputPath: String): Boolean {
         return try {
             val src = File(inputPath)
             val dst = File(outputPath)
@@ -227,67 +196,62 @@ val cmd = buildFfmpegCommand(
         }
     }
 
+    /**
+     * FFmpeg:
+     * - blur rects: crop->boxblur->overlay (בפיקסלים יחסיים של הוידאו דרך iw/ih)
+     * - logo: scale2ref כדי לשמור יחס (לא להימתח!), ואז overlay לפי W/H
+     * - איכות: H.264 CRF 18 + AAC 192k
+     */
     private fun buildFfmpegCommand(
         inputPath: String,
         outputPath: String,
-        isVideo: Boolean,
         rects: List<RelRect>,
         logoPath: String?,
         logoRelX: Float,
         logoRelY: Float,
         logoRelW: Float
     ): String {
+        val hasLogo = !logoPath.isNullOrBlank()
+
         val sb = StringBuilder()
         sb.append("-y ")
         sb.append("-i \"").append(inputPath).append("\" ")
-        val hasLogo = !logoPath.isNullOrBlank()
         if (hasLogo) sb.append("-i \"").append(logoPath).append("\" ")
 
-        // filter_complex: blur + logo, יציאה תמיד ל-[outv]
         sb.append("-filter_complex \"")
         var stream = "[0:v]"
 
-        // Blur rectangles: crop+blur+overlay (יציב, לא תלוי enable)
+        // Blur rectangles
         rects.forEachIndexed { i, r ->
-            val x = r.x
-            val y = r.y
-            val w = r.w
-            val h = r.h
-            // skip almost-zero
-            if (w <= 0.0005f || h <= 0.0005f) return@forEachIndexed
-
+            // split base -> blur a cropped area -> overlay back
             sb.append("$stream split=2[base$i][tmp$i];")
-            sb.append("[tmp$i]crop=w='iw*${w}':h='ih*${h}':x='iw*${x}':y='ih*${y}',boxblur=10:1[blur$i];")
-            sb.append("[base$i][blur$i]overlay=x='main_w*${x}':y='main_h*${y}'[v$i];")
+            sb.append("[tmp$i]crop=w='iw*${r.w}':h='ih*${r.h}':x='iw*${r.x}':y='ih*${r.y}',boxblur=10:1[blur$i];")
+            sb.append("[base$i][blur$i]overlay=x='iw*${r.x}':y='ih*${r.y}'[v$i];")
             stream = "[v$i]"
         }
 
         if (hasLogo) {
-            // ✅ scale logo relative to main stream using scale2ref (main_w/main_h valid here)
-            sb.append("[1:v]$stream scale2ref=w='main_w*${logoRelW}':h=-1[logo][base];")
-            sb.append("[base][logo]overlay=x='main_w*${logoRelX}':y='main_h*${logoRelY}'[outv]")
+            // scale2ref keeps aspect ratio: logo width = video_w * logoRelW
+            // outputs: [lg] scaled logo, [base] passthrough video
+            sb.append("[1:v]format=rgba[logo];")
+            sb.append("[logo]scale2ref=w='iw*${logoRelW}':h='-1'[lg][base];")
+            sb.append("[base][lg]overlay=x='W*${logoRelX}':y='H*${logoRelY}':format=auto[outv]")
         } else {
-            sb.append("$stream null[outv]")
+            sb.append("$stream copy[outv]")
         }
 
         sb.append("\" ")
 
-        // Map + encode:
-        // - video: H264 CRF18 + AAC (edited videos often break on -c:a copy)
-        // - image: single frame
-        sb.append("-map \"[outv]\" ")
-        if (isVideo) {
-            sb.append("-map 0:a? ")
-            sb.append("-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p -r 30 ")
-            sb.append("-c:a aac -b:a 160k -ac 2 ")
-            sb.append("-movflags +faststart ")
-        } else {
-            sb.append("-frames:v 1 ")
-            // איכות גבוהה לתמונה (q נמוך = איכות גבוהה)
-            sb.append("-q:v 2 ")
-        }
+        // map video + (optional) audio
+        sb.append("-map \"[outv]\" -map 0:a? ")
+
+        // quality settings
+        sb.append("-c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p ")
+        sb.append("-c:a aac -b:a 192k -ar 48000 ")
+        sb.append("-movflags +faststart ")
 
         sb.append("\"").append(outputPath).append("\"")
+
         return sb.toString()
     }
 }
