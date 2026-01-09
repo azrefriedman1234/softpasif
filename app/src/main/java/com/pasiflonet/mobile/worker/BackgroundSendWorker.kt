@@ -49,8 +49,16 @@ class BackgroundSendWorker(
     }
     // AUTO_DOWNLOAD_REAL_VIDEO_HELPERS
 override suspend fun doWork(): Result {
-        // ✅ fallback path from input data (may be null)
+        // ✅ freeze inputPathStr to avoid smart-cast issues across lambdas (early)
         val fallbackPath = inputData.getString("fallbackPath")
+            ?: inputData.getString("fallback_path")
+            ?: inputData.getString("fallback")
+        var inputPath: String? = fallbackPath
+        val inputPathStr: String = (inputPath ?: fallbackPath) ?: return Result.failure()
+
+
+        // ✅ fallback path from input data (may be null)
+        // DUP_REMOVED val fallbackPath = inputData.getString("fallbackPath")
             ?: inputData.getString("fallback_path")
             ?: inputData.getString("fallback")
 
@@ -60,7 +68,7 @@ override suspend fun doWork(): Result {
         val fileId = inputData.getInt("FILE_ID", 0)
 
         // AUTO_DOWNLOAD_REAL_VIDEO_FLOW
-        // בניית inputPath נכון:
+        // בניית inputPathStr נכון:
         // 1) אם יש fileId - נעדיף path מ-TDLib
         // 2) אחרת fallbackPath (יכול להיות content:// או file path)
         var inputPath: String? = null
@@ -77,21 +85,21 @@ override suspend fun doWork(): Result {
                     }
                 }
                 if (p != null && File(p).exists() && !(isVideo && isImagePath(p))) {
-                    inputPath = p
+                    inputPathStr = p
                 }
             }
             if (isVideo && isImagePath(inputPathStr)) {
-                DebugLog.append(applicationContext, "BG worker FAIL: thumbnail used as video input: $inputPath")
+                DebugLog.append(applicationContext, "BG worker FAIL: thumbnail used as video input: $inputPathStr")
                 throw IllegalArgumentException("thumbnail-as-video")
             }
-            if (inputPath.isNullOrBlank()) {
-                DebugLog.append(applicationContext, "BG worker FAIL: inputPath missing (fileId=$fileId)")
-                throw IllegalArgumentException("inputPath-missing")
+            if (inputPathStr.isNullOrBlank()) {
+                DebugLog.append(applicationContext, "BG worker FAIL: inputPathStr missing (fileId=$fileId)")
+                throw IllegalArgumentException("inputPathStr-missing")
             }
         }
-        // ✅ Freeze inputPath to avoid smart-cast issues (inputPath is a var used across lambdas)
+        // ✅ Freeze inputPathStr to avoid smart-cast issues (inputPathStr is a var used across lambdas)
         val inputPathStr = inputPath ?: run {
-            DebugLog.append(applicationContext, "BG worker FAIL: inputPath missing (fileId=$fileId)")
+            DebugLog.append(applicationContext, "BG worker FAIL: inputPathStr missing (fileId=$fileId)")
             return Result.failure()
         }
         if (isVideo && isImagePath(inputPathStr)) {
@@ -102,12 +110,12 @@ override suspend fun doWork(): Result {
 
 
         try {
-            if (fileId != 0) inputPath = TdLibManager.getFilePath(fileId)
+            if (fileId != 0) inputPathStr = TdLibManager.getFilePath(fileId)
         } catch (_: Throwable) {}
-        if (inputPath.isNullOrBlank()) inputPath = fallbackPath
+        if (inputPathStr.isNullOrBlank()) inputPathStr = fallbackPath
 
         // אם אין מדיה בכלל -> טקסט בלבד
-        if ((inputPath == null || inputPath.isBlank()) && fileId == 0) {
+        if ((inputPathStr == null || inputPathStr.isBlank()) && fileId == 0) {
             DebugLog.append(applicationContext, "BG worker: text-only -> sendFinalMessage")
             TdLibManager.sendFinalMessage(target, caption, null, false)
             return Result.success()
@@ -115,18 +123,18 @@ override suspend fun doWork(): Result {
 
         // אם זה וידאו אבל יש thumbnail/אין קובץ עדיין -> להוריד אוטומטית את הוידאו האמיתי
         if (isVideo) {
-            val before = inputPath
-            inputPath = waitForRealVideoPath(fileId, inputPath)
-            DebugLog.append(applicationContext, "BG worker: video path resolve | before=$before | after=$inputPath | fileId=$fileId")
+            val before = inputPathStr
+            inputPathStr = waitForRealVideoPath(fileId, inputPathStr)
+            DebugLog.append(applicationContext, "BG worker: video path resolve | before=$before | after=$inputPathStr | fileId=$fileId")
             // אם עדיין thumbnail/לא קיים - ננסה שוב בריטרי (WorkManager)
-            if (inputPath.isNullOrBlank() || isThumbnailPath(inputPath!!) || !java.io.File(inputPath!!).exists()) {
+            if (inputPathStr.isNullOrBlank() || isThumbnailPath(inputPathStr) || !java.io.File(inputPathStr).exists()) {
                 DebugLog.append(applicationContext, "BG worker: video not ready yet -> retry")
                 return Result.retry()
             }
         }
         // AUTO_DOWNLOAD_REAL_VIDEO_FLOW
 
-        val fallbackPath = inputData.getString("FALLBACK_PATH")
+        // DUP_REMOVED val fallbackPath = inputData.getString("FALLBACK_PATH")
 
         val logoUriStr = inputData.getString("LOGO_URI")
         val logoRelX = inputData.getFloat("LOGO_REL_X", 0f)
@@ -139,9 +147,9 @@ override suspend fun doWork(): Result {
         DebugLog.append(applicationContext, "BG worker start | target=$target isVideo=$isVideo fileId=$fileId fallback=$fallbackPath rects=${rects.size} hasLogo=${!logoUriStr.isNullOrBlank()}")
 
         // Resolve ORIGINAL media: prefer FILE_ID. fallbackPath is preview thumbPath.
-// (removed) inputPath is built above
+// (removed) inputPathStr is built above
         if (inputPath == null || !File(inputPathStr).exists()) {
-            DebugLog.append(applicationContext, "BG worker FAIL: inputPath missing")
+            DebugLog.append(applicationContext, "BG worker FAIL: inputPathStr missing")
             return Result.failure()
         }
 
@@ -149,7 +157,7 @@ override suspend fun doWork(): Result {
         if (!hasEdits) {
             // No edits -> send original immediately
             return try {
-                TdLibManager.sendFinalMessage(target, caption, inputPath, isVideo)
+                TdLibManager.sendFinalMessage(target, caption, inputPathStr, isVideo)
                 DebugLog.append(applicationContext, "BG worker sent original OK")
                 Result.success()
             } catch (e: Exception) {
@@ -163,14 +171,14 @@ override suspend fun doWork(): Result {
         val outPath = outFile.absolutePath
 
         val success = if (isVideo) {
-            processVideo(inputPath, outPath, rects, logoUriStr, logoRelX, logoRelY, logoRelW)
+            processVideo(inputPathStr, outPath, rects, logoUriStr, logoRelX, logoRelY, logoRelW)
         } else {
-            processImage(inputPath, outPath, rects, logoUriStr, logoRelX, logoRelY, logoRelW)
+            processImage(inputPathStr, outPath, rects, logoUriStr, logoRelX, logoRelY, logoRelW)
         }
 
         DebugLog.append(applicationContext, "BG worker processed success=$success out=$outPath")
 
-        val sendPath = if (success && File(outPath).exists() && File(outPath).length() > 1024) outPath else inputPath
+        val sendPath = if (success && File(outPath).exists() && File(outPath).length() > 1024) outPath else inputPathStr
 
         return try {
             TdLibManager.sendFinalMessage(target, caption, sendPath, isVideo)
@@ -204,7 +212,7 @@ override suspend fun doWork(): Result {
     ): Boolean = suspendCancellableCoroutine { cont ->
         MediaProcessor.processContent(
             context = applicationContext,
-            inputPath = input,
+            inputPathStr = input,
             outputPath = output,
             isVideo = true,
             blurRects = rects,
