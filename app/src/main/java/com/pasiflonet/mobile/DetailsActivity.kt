@@ -222,10 +222,10 @@ class DetailsActivity : AppCompatActivity() {
             }
 
             val arr = o.optJSONArray("rects") ?: JSONArray()
-            val list = ArrayList<BlurRect>()
+            val list = ArrayList<RectF>()
             for (i in 0 until arr.length()) {
                 val jr = arr.getJSONObject(i)
-                list.add(BlurRect(
+                list.add(RectF(
                         jr.optDouble("l", 0.0).toFloat(),
                         jr.optDouble("t", 0.0).toFloat(),
                         jr.optDouble("r", 0.0).toFloat(),
@@ -233,7 +233,7 @@ class DetailsActivity : AppCompatActivity() {
                     )
                 )
             }
-            runCatching { b.drawingView.setRects(list) }
+            runCatching { b.drawingView.setRects(list.map { RectF(it.left, it.top, it.right, it.bottom) }) }
         }
     }
 
