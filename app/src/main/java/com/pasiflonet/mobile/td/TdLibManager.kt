@@ -131,14 +131,14 @@ object TdLibManager {
 
         val content: TdApi.InputMessageContent =
             if (filePath.isNullOrBlank()) {
-                TdApi.InputMessageText(caption, false, true)
+                TdApi.InputMessageText(caption, TdApi.LinkPreviewOptions(true, null, false, false, false), true)
             } else {
                 // ✅ Send as Document to avoid Telegram compression (high quality for photos + videos)
                 val f = TdApi.InputFileLocal(filePath)
                 TdApi.InputMessageDocument(f, null, false, caption)
             }
 
-        client?.send(TdApi.SendMessage(chatId, 0, null, null, content)) { /* noop */ }
+        client?.send(TdApi.SendMessage(chatId, null, null, TdApi.MessageSendOptions(false, false, null, false, false), null, content)) { /* noop */ }
     }
 
 }
