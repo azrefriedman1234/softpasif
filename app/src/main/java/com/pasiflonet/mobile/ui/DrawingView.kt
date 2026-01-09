@@ -50,9 +50,15 @@ class DrawingView(context: Context, attrs: AttributeSet) : View(context, attrs) 
         invalidate()
     }
 
-    fun setRects(newRects: List<RectF>) {
+    // Different name to avoid JVM signature clash (List erasure)
+    fun setRectsRectF(newRects: List<RectF>) {
         rects.clear()
         for (r in newRects) rects.add(BlurRect(r.left, r.top, r.right, r.bottom))
         invalidate()
+    }
+
+    // Backward compat for old calls that pass ArrayList<RectF>
+    fun setRects(newRects: ArrayList<RectF>) {
+        setRectsRectF(newRects)
     }
 }

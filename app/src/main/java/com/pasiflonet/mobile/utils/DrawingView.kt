@@ -144,9 +144,15 @@ class DrawingView @JvmOverloads constructor(
         invalidate()
     }
 
-    fun setRects(newRects: List<RectF>) {
+    // Different name to avoid JVM signature clash (List erasure)
+    fun setRectsRectF(newRects: List<RectF>) {
         relativeRects.clear()
         for (r in newRects) relativeRects.add(BlurRect(r.left, r.top, r.right, r.bottom))
         invalidate()
+    }
+
+    // Backward compat for old calls that pass ArrayList<RectF>
+    fun setRects(newRects: ArrayList<RectF>) {
+        setRectsRectF(newRects)
     }
 }
