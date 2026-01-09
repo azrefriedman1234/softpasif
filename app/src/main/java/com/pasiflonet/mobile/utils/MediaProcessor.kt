@@ -1,20 +1,145 @@
 package com.pasiflonet.mobile.utils
 
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.net.Uri
-import android.util.Log
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.widget.Toast
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
 import java.io.File
 import java.io.FileOutputStream
-import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.abs
 
 object MediaProcessor {
+
+    /**
+     * blurRects: מקבל כל List (RectF או data class עם left/top/right/bottom).
+     * הערכים מצופים להיות יחסיים (0..1). אם לא, אנחנו עדיין נ-clamp כדי לא לקרוס.
+     */
+    fun processContent(
+        context: Context,
+        inputPath: String,
+        outputPath: String,
+        isVideo: Boolean,
+        blurRects: List<out Any> = emptyList(),
+        hasLogo: Boolean = false,
+        logoPath: String? = null,
+        logoRelX: Float = 0.02f,
+        logoRelY: Float = 0.02f,
+        logoRelW: Float = 0.30f,
+        callback: (Boolean) -> Unit
+    ) {
+        // ✅ HARD GUARD: אם ffmpeg-kit חסר לו smart-exception בזמן ריצה, לא לקרוס.
+        try {
+            Class.forName("com.arthenica.smartexception.java.Exceptions")
+        } catch (t: Throwable) {
+            Log.e("MediaProcessor", "Missing smart-exception-java (Exceptions). FFmpeg disabled.", t)
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "FFmpegKit missing dependency (smart-exception). Install NEW APK build.", Toast.LENGTH_LONG).show()
+            }
+            callback(false)
+            return
+        }
+
+        val resolvedInput = resolveToLocalPath(context, inputPath, isVideo) ?: run {
+            callback(false); return
+        }
+
+        val resolvedLogo = if (hasLogo && !logoPath.isNullOrBlank()) {
+            resolveToLocalPath(context, logoPath, false)
+        } else null
+
+        val rects = blurRects.mapNotNull { it.toRelRectOrNull() }
+            .filter { it.w > 0.0005f && it.h > 0.0005f }
+
+        // אם אין שום עיבוד — פשוט נעתיק קובץ
+        if (rects.isEmpty() && !hasLogo) {
+            if (fallbackCopy(context, resolvedInput, outputPath)) callback(true) else callback(false)
+            return
+        }
+
+        val cmd = buildFfmpegCommand(
+            inputPath = resolvedInput,
+            outputPath = outputPath,
+            isVideo = isVideo,
+            rects = rects,
+            logoPath = resolvedLogo,
+            logoRelX = clamp01(logoRelX),
+            logoRelY = clamp01(logoRelY),
+            logoRelW = logoRelW.coerceIn(0.05f, 1.0f)
+        )
+
+        Log.d("MediaProcessor", "ffmpeg cmd: $cmd")
+
+        // EXTRA SAFETY: גם אם משהו עדיין חסר – לא לקרוס.
+        try {
+            FFmpegKit.executeAsync(cmd) { session ->
+                val rc = session.returnCode
+                val ok = ReturnCode.isSuccess(rc)
+                if (!ok) {
+                    Log.e("MediaProcessor", "ffmpeg failed rc=$rc\n${session.allLogsAsString}")
+                }
+                callback(ok)
+            }
+        } catch (e: NoClassDefFoundError) {
+            Log.e("MediaProcessor", "FFmpegKit crashed due to missing class", e)
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "FFmpegKit missing class. Install NEW APK build.", Toast.LENGTH_LONG).show()
+            }
+            callback(false)
+        }
+    }
+
+    // ------------------------ helpers ------------------------
+
+    private data class RelRect(val x: Float, val y: Float, val w: Float, val h: Float)
+
+    private fun Any.toRelRectOrNull(): RelRect? {
+        // תומך גם ב-android.graphics.RectF וגם data class עם left/top/right/bottom
+        val left = getFloatProp("left") ?: return null
+        val top = getFloatProp("top") ?: return null
+        val right = getFloatProp("right") ?: return null
+        val bottom = getFloatProp("bottom") ?: return null
+
+        val x = clamp01(left)
+        val y = clamp01(top)
+        val w = clamp01(right) - clamp01(left)
+        val h = clamp01(bottom) - clamp01(top)
+
+        return RelRect(
+            x = x,
+            y = y,
+            w = w.coerceIn(0f, 1f),
+            h = h.coerceIn(0f, 1f)
+        )
+    }
+
+    private fun Any.getFloatProp(name: String): Float? {
+        return try {
+            // getter
+            val m = this.javaClass.methods.firstOrNull { it.name.equals("get${name.replaceFirstChar { it.uppercase() }}") && it.parameterTypes.isEmpty() }
+            if (m != null) return (m.invoke(this) as Number).toFloat()
+
+            // public field
+            val f = this.javaClass.fields.firstOrNull { it.name == name }
+            if (f != null) return (f.get(this) as Number).toFloat()
+
+            // declared field
+            val df = this.javaClass.declaredFields.firstOrNull { it.name == name }
+            if (df != null) {
+                df.isAccessible = true
+                return (df.get(this) as Number).toFloat()
+            }
+
+            null
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun clamp01(v: Float): Float = v.coerceIn(0f, 1f)
 
     private fun resolveToLocalPath(context: Context, pathOrUri: String, isVideo: Boolean): String? {
         return try {
@@ -31,214 +156,86 @@ object MediaProcessor {
                 pathOrUri.startsWith("file://") -> Uri.parse(pathOrUri).path
                 else -> pathOrUri
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e("MediaProcessor", "resolveToLocalPath failed", e)
             null
         }
     }
 
-
-    /**
-     * Processes VIDEO only (images are handled in ImageUtils).
-     * Adds optional blur rectangles and optional logo overlay.
-     *
-     * This implementation is defensive:
-     * - Works when the input has no audio stream (maps audio optional)
-     * - Avoids invalid filter graphs ("null")
-     * - Clamps blur-rect values to sane ranges
-     */
-    fun processContent(
-        context: Context,
-        inputPath: String,
-        outputPath: String,
-        isVideo: Boolean,
-        blurRects: List<BlurRect>,
-        logoUri: Uri?,
-        logoRelX: Float,
-        logoRelY: Float,
-        logoRelW: Float,
-        onComplete: (Boolean) -> Unit
-    ) {
-        // ✅ HARD GUARD: never crash if FFmpegKit dependency is missing
-        try {
-            Class.forName("com.arthenica.smartexception.java.Exceptions")
+    private fun fallbackCopy(context: Context, inputPath: String, outputPath: String): Boolean {
+        return try {
+            val src = File(inputPath)
+            val dst = File(outputPath)
+            dst.parentFile?.mkdirs()
+            src.copyTo(dst, overwrite = true)
+            true
         } catch (e: Throwable) {
-            Log.e("MediaProcessor", "Missing smart-exception-java (Exceptions). FFmpeg disabled.", e)
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(context, "FFmpegKit missing dependency (smart-exception). Install NEW APK build.", Toast.LENGTH_LONG).show()
-            }
-            callback(false)
-            return
-        }
-        if (!isVideo) {
-            onComplete(false)
-            return
-        }
-
-        // Step 1: prepare logo file (optional)
-        val logoPath: String? = tryPrepareLogoFile(context, logoUri)
-
-        // Step 2: build a safer ffmpeg command
-        val cmd = buildFfmpegCommand(
-            inputPath = inputPath,
-            outputPath = outputPath,
-            logoPath = logoPath,
-            blurRects = blurRects,
-            logoRelX = logoRelX,
-            logoRelY = logoRelY,
-            logoRelW = logoRelW
-        )
-
-        try {
-            // ✅ EXTRA SAFETY: catch NoClassDefFoundError around FFmpegKit call
-        try {
-            FFmpegKit.executeAsync(cmd) { session ->
-                if (ReturnCode.isSuccess(session.returnCode)) {
-                    onComplete(true)
-                } else {
-                    Log.e("FFmpeg", "Failed: ${session.failStackTrace}")
-                    // If ffmpeg fails, try to just copy the source to output (so we can still send).
-                    fallbackCopy(inputPath, outputPath, onComplete)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("FFmpeg", "executeAsync crashed", e)
-            fallbackCopy(inputPath, outputPath, onComplete)
+            Log.e("MediaProcessor", "fallbackCopy failed", e)
+            false
         }
     }
 
     private fun buildFfmpegCommand(
         inputPath: String,
         outputPath: String,
+        isVideo: Boolean,
+        rects: List<RelRect>,
         logoPath: String?,
-        blurRects: List<BlurRect>,
         logoRelX: Float,
         logoRelY: Float,
         logoRelW: Float
     ): String {
-        // Always scale to 720p width to reduce load
-        val filter = StringBuilder()
-        filter.append("[0:v]scale=720:-2[v0];")
-        var stream = "[v0]"
-
-        // Blur rects are relative (0..1). Clamp & skip invalid rectangles.
-        var blurIndex = 0
-        for (r in blurRects) {
-            val left = clamp01(r.left)
-            val top = clamp01(r.top)
-            val right = clamp01(r.right)
-            val bottom = clamp01(r.bottom)
-
-            val w = right - left
-            val h = bottom - top
-            if (w <= 0.001f || h <= 0.001f) continue
-
-            val xPct = (left * 100f).toInt()
-            val yPct = (top * 100f).toInt()
-            val xrPct = (right * 100f).toInt()
-            val ybPct = (bottom * 100f).toInt()
-
-            filter.append("$stream")
-            filter.append("boxblur=10:1:enable='between(x,iw*$xPct/100,iw*$xrPct/100)*between(y,ih*$yPct/100,ih*$ybPct/100)'")
-            filter.append("[b$blurIndex];")
-            stream = "[b$blurIndex]"
-            blurIndex++
-        }
-
+        val sb = StringBuilder()
+        sb.append("-y ")
+        sb.append("-i \"").append(inputPath).append("\" ")
         val hasLogo = !logoPath.isNullOrBlank()
-        val xPct = (clamp01(logoRelX) * 100f).toInt()
-        val yPct = (clamp01(logoRelY) * 100f).toInt()
-        val wRel = clamp01(if (logoRelW.isFinite() && logoRelW > 0f) logoRelW else 0.25f)
+        if (hasLogo) sb.append("-i \"").append(logoPath).append("\" ")
+
+        // filter_complex: blur + logo, יציאה תמיד ל-[outv]
+        sb.append("-filter_complex \"")
+        var stream = "[0:v]"
+
+        // Blur rectangles: crop+blur+overlay (יציב, לא תלוי enable)
+        rects.forEachIndexed { i, r ->
+            val x = r.x
+            val y = r.y
+            val w = r.w
+            val h = r.h
+            // skip almost-zero
+            if (w <= 0.0005f || h <= 0.0005f) return@forEachIndexed
+
+            sb.append("$stream split=2[base$i][tmp$i];")
+            sb.append("[tmp$i]crop=w='iw*${w}':h='ih*${h}':x='iw*${x}':y='ih*${y}',boxblur=10:1[blur$i];")
+            sb.append("[base$i][blur$i]overlay=x='main_w*${x}':y='main_h*${y}'[v$i];")
+            stream = "[v$i]"
+        }
 
         if (hasLogo) {
-            // Scale logo to a fraction of video width (relative)
-            // Note: iw here refers to the logo input stream; we use scale2ref to size by video width safely.
-            // Simpler & stable: scale logo by a fixed fraction of output width.
-            filter.append("[1:v]scale=720*$wRel:-1[logo];")
-            filter.append("$stream[logo]overlay=W*$xPct/100:H*$yPct/100:format=auto[outv]")
+            // logo scale by relative width of main video
+            sb.append("[1:v]scale=w='main_w*${logoRelW}':h=-1[logo];")
+            sb.append("$stream[logo]overlay=x='main_w*${logoRelX}':y='main_h*${logoRelY}'[outv]")
         } else {
-            // No logo: just pass-through last stream as [outv]
-            filter.append("$stream" + "null[outv]")
+            sb.append("$stream null[outv]")
         }
 
-                val cmd = StringBuilder()
+        sb.append("\" ")
 
-                cmd.append("-y ")
-                cmd.append("-i \"").append(inputPath).append("\" ")
-                if (hasLogo) {
-                    cmd.append("-i \"").append(logoPath).append("\" ")
-                }
-
-                cmd.append("-filter_complex \"")
-                cmd.append(filter)
-                cmd.append("\" ")
-
-                // Map video from filter output, map audio optionally (won't fail if missing)
-                cmd.append("-map \"[outv]\" -map 0:a? ")
-
-                // Safer audio handling for edited videos: re-encode to AAC instead of copy
-                cmd.append("-c:v libx264 -preset ultrafast -r 30 -pix_fmt yuv420p ")
-                cmd.append("-c:a aac -b:a 128k -ac 2 ")
-                cmd.append("-movflags +faststart ")
-                cmd.append("\"").append(outputPath).append("\"")
-
-                return cmd.toString()
-    }
-
-    private fun tryPrepareLogoFile(context: Context, logoUri: Uri?): String? {
-        if (logoUri == null) return null
-        return try {
-            context.contentResolver.openInputStream(logoUri)?.use { input ->
-                val bytes = input.readBytes()
-                if (bytes.isEmpty()) return null
-
-                // Downsample to avoid OOM
-                val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-                val req = 256
-                val sample = calculateInSampleSize(opts, req, req)
-
-                val opts2 = BitmapFactory.Options().apply { inSampleSize = sample }
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts2) ?: return null
-
-                val file = File(context.cacheDir, "logo_${System.currentTimeMillis()}.png")
-                FileOutputStream(file).use { out ->
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
-                }
-                bitmap.recycle()
-                file.absolutePath
-            }
-        } catch (e: Exception) {
-            Log.e("MediaProcessor", "Logo prep failed", e)
-            null
+        // Map + encode:
+        // - video: H264 CRF18 + AAC (edited videos often break on -c:a copy)
+        // - image: single frame
+        sb.append("-map \"[outv]\" ")
+        if (isVideo) {
+            sb.append("-map 0:a? ")
+            sb.append("-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p -r 30 ")
+            sb.append("-c:a aac -b:a 160k -ac 2 ")
+            sb.append("-movflags +faststart ")
+        } else {
+            sb.append("-frames:v 1 ")
+            // איכות גבוהה לתמונה (q נמוך = איכות גבוהה)
+            sb.append("-q:v 2 ")
         }
-    }
 
-    private fun fallbackCopy(input: String, output: String, callback: (Boolean) -> Unit) {
-        try {
-            File(input).copyTo(File(output), overwrite = true)
-            callback(true)
-        } catch (e: Exception) {
-            callback(false)
-        }
-    }
-
-    private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
-        val height = options.outHeight
-        val width = options.outWidth
-        var inSampleSize = 1
-        if (height > reqHeight || width > reqWidth) {
-            val halfHeight = height / 2
-            val halfWidth = width / 2
-            while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
-                inSampleSize *= 2
-            }
-        }
-        return max(1, inSampleSize)
-    }
-
-    private fun clamp01(v: Float): Float {
-        if (!v.isFinite()) return 0f
-        return min(1f, max(0f, v))
+        sb.append("\"").append(outputPath).append("\"")
+        return sb.toString()
     }
 }
