@@ -17,6 +17,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import com.pasiflonet.mobile.td.TdLibManager
 
 class DetailsActivity : AppCompatActivity() {
 
