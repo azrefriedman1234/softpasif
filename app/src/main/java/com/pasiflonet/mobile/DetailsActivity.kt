@@ -321,7 +321,7 @@ private fun performSafeSend() {
         target: String,
         caption: String,
         isVideo: Boolean,
-        fileId: Int,
+        fileId: Long,
         fallbackPath: String?,
         rects: List<BlurRect>,
         logoUri: Uri?,
@@ -333,15 +333,15 @@ private fun performSafeSend() {
             if (isVideo && (lp.endsWith(".jpg") || lp.endsWith(".jpeg") || lp.endsWith(".png") || lp.endsWith(".webp"))) null else p
         }
 
-        val rectsJson = BackgroundSendWorker.encodeRects(rects)
-        val input = BackgroundSendWorker.buildInput(
+        val rectsJson = encodeRects(rects)
+        val input = buildInput(
             target = target,
             caption = caption,
             isVideo = isVideo,
             fileId = fileId,
             fallbackPath = fallbackPath,
             rectsJson = rectsJson,
-            logoUri = logoUri?.toString(),
+            logoUriStr = logoUri?.toString(),
             lx = lx, ly = ly, lw = lw
         )
         val req = OneTimeWorkRequestBuilder<BackgroundSendWorker>()
