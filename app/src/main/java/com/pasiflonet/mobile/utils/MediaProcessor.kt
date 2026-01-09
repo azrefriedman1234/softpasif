@@ -202,56 +202,65 @@ object MediaProcessor {
      * - logo: scale2ref כדי לשמור יחס (לא להימתח!), ואז overlay לפי W/H
      * - איכות: H.264 CRF 18 + AAC 192k
      */
-    private fun buildFfmpegCommand(
-        inputPath: String,
-        outputPath: String,
-        rects: List<RelRect>,
-        logoPath: String?,
-        logoRelX: Float,
-        logoRelY: Float,
-        logoRelW: Float
-    ): String {
-        val hasLogo = !logoPath.isNullOrBlank()
+private fun buildFfmpegCommand(
+    inputPath: String,
+    outputPath: String,
+    isVideo: Boolean,
+    rects: List<RelRect>,
+    logoPath: String?,
+    logoRelX: Float,
+    logoRelY: Float,
+    logoRelW: Float
+): String {
+    val hasLogo = !logoPath.isNullOrBlank()
 
-        val sb = StringBuilder()
-        sb.append("-y ")
-        sb.append("-i \"").append(inputPath).append("\" ")
-        if (hasLogo) sb.append("-i \"").append(logoPath).append("\" ")
+    val sb = StringBuilder()
+    sb.append("-y ")
 
-        sb.append("-filter_complex \"")
-        var stream = "[0:v]"
+    // input 0
+    sb.append("-i \"").append(inputPath).append("\" ")
+    // input 1 (logo)
+    if (hasLogo) sb.append("-i \"").append(logoPath).append("\" ")
 
-        // Blur rectangles
-        rects.forEachIndexed { i, r ->
-            // split base -> blur a cropped area -> overlay back
-            sb.append("$stream split=2[base$i][tmp$i];")
-            sb.append("[tmp$i]crop=w='iw*${r.w}':h='ih*${r.h}':x='iw*${r.x}':y='ih*${r.y}',boxblur=10:1[blur$i];")
-            sb.append("[base$i][blur$i]overlay=x='iw*${r.x}':y='ih*${r.y}'[v$i];")
-            stream = "[v$i]"
-        }
+    // map streams (keep audio if exists)
+    // We'll always output [outv] as video stream.
+    sb.append("-filter_complex \"")
 
-        if (hasLogo) {
-            // scale2ref keeps aspect ratio: logo width = video_w * logoRelW
-            // outputs: [lg] scaled logo, [base] passthrough video
-            sb.append("[1:v]format=rgba[logo];")
-            sb.append("[logo]scale2ref=w='iw*${logoRelW}':h='-1'[lg][base];")
-            sb.append("[base][lg]overlay=x='W*${logoRelX}':y='H*${logoRelY}':format=auto[outv]")
-        } else {
-            sb.append("$stream copy[outv]")
-        }
+    var stream = "[0:v]"
 
-        sb.append("\" ")
-
-        // map video + (optional) audio
-        sb.append("-map \"[outv]\" -map 0:a? ")
-
-        // quality settings
-        sb.append("-c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p ")
-        sb.append("-c:a aac -b:a 192k -ar 48000 ")
-        sb.append("-movflags +faststart ")
-
-        sb.append("\"").append(outputPath).append("\"")
-
-        return sb.toString()
+    // Blur rectangles: crop+blur+overlay
+    rects.forEachIndexed { i, r ->
+        if (r.w <= 0.0005f || r.h <= 0.0005f) return@forEachIndexed
+        sb.append("$stream split=2[base$i][tmp$i];")
+        sb.append("[tmp$i]crop=w='iw*${r.w}':h='ih*${r.h}':x='iw*${r.x}':y='ih*${r.y}',boxblur=10:1[blur$i];")
+        sb.append("[base$i][blur$i]overlay=x='iw*${r.x}':y='ih*${r.y}'[v$i];")
+        stream = "[v$i]"
     }
+
+    // Logo overlay: scale2ref keeps aspect ratio and scales relative to main video width (prevents "thin/long" logo)
+    if (hasLogo) {
+        // scale logo width to ref_w*logoRelW, height auto by aspect (ow/mdar)
+        sb.append("[1:v]format=rgba[lg];")
+        sb.append("[lg]$stream scale2ref=w='ref_w*${logoRelW}':h='ow/mdar'[lg2][baseL];")
+        sb.append("[baseL][lg2]overlay=x='main_w*${logoRelX}':y='main_h*${logoRelY}':format=auto[outv];")
+    } else {
+        sb.append("$stream[outv];")
+    }
+
+    sb.append("\" ")
+
+    // Output mapping
+    sb.append("-map \"[outv]\" -map 0:a? ")
+
+    // Quality settings (video)
+    // CRF 18 = high quality; preset veryfast = ok for mobile
+    sb.append("-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p ")
+    sb.append("-c:a aac -b:a 192k ")
+    sb.append("-movflags +faststart ")
+
+    // output
+    sb.append("\"").append(outputPath).append("\"")
+    return sb.toString()
+}
+
 }

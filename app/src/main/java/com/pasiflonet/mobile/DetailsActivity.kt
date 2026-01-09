@@ -199,50 +199,59 @@ class DetailsActivity : AppCompatActivity() {
             null
         }
     }
+private fun performSafeSend() {
+    // ✅ Return immediately to main screen; processing+send happens in WorkManager.
+    val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+    val target = prefs.getString("target_username", "")?.trim().orEmpty()
+    val caption = b.etCaption.text.toString()
+    val includeMedia = b.swIncludeMedia.isChecked
 
-    private fun performSafeSend() {
-        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-        val target = prefs.getString("target_username", "") ?: ""
-        val caption = b.etCaption.text.toString()
-        val includeMedia = b.swIncludeMedia.isChecked
-
-        if (target.isEmpty()) {
-            safeToast("No target set!")
-            return
-        }
-
-        // Collect edits quickly (no heavy processing here)
-        val rects = ArrayList<BlurRect>()
-        for (r in b.drawingView.rects) rects.add(BlurRect(r.left, r.top, r.right, r.bottom))
-
-        val logoUri: Uri? =
-            if (b.ivDraggableLogo.visibility == android.view.View.VISIBLE) {
-                prefs.getString("logo_uri", null)?.let { Uri.parse(it) }
-            } else null
-
-        val relW =
-            if (imageBounds.width() > 0)
-                ((b.ivDraggableLogo.width * savedLogoScale) / imageBounds.width()).coerceIn(0.02f, 1.0f)
-            else 0.2f
-
-        // ✅ Use original fileId for sending (not thumbnail). If includeMedia off => fileId=0
-        enqueueBackgroundSend(
-            target = target,
-            caption = caption,
-            isVideo = isVideo,
-            fileId = if (includeMedia) fileId else 0,
-            fallbackPath = if (includeMedia) thumbPath else null,
-            rects = rects,
-            logoUri = logoUri,
-            lx = savedLogoRelX,
-            ly = savedLogoRelY,
-            lw = relW
-        )
-
-        safeToast("Queued. Sending in background…")
-        clearDraft()
-        finish() // ✅ Return to table immediately
+    if (target.isEmpty()) {
+        safeToast("No target set!")
+        return
     }
+
+    // Collect rects (relative 0..1)
+    val rects = ArrayList<BlurRect>()
+    for (r in b.drawingView.rects) rects.add(BlurRect(r.left, r.top, r.right, r.bottom))
+
+    // Logo (use saved uri, not bitmap-from-view)
+    var logoUriStr: String? = null
+    if (includeMedia && b.ivDraggableLogo.visibility == android.view.View.VISIBLE) {
+        runCatching {
+            val savedUriStr = prefs.getString("logo_uri", null)
+            if (!savedUriStr.isNullOrBlank()) {
+                val uri = android.net.Uri.parse(savedUriStr)
+                contentResolver.openInputStream(uri)?.close()
+                logoUriStr = savedUriStr
+            }
+        }
+    }
+
+    val relW = if (imageBounds.width() > 0)
+        (b.ivDraggableLogo.width * savedLogoScale) / imageBounds.width()
+    else 0.2f
+
+    // enqueue background work
+    enqueueBackgroundSend(
+        target = target,
+        caption = caption,
+        isVideo = isVideo,
+        fileId = if (includeMedia) fileId else 0,
+        fallbackPath = if (includeMedia) thumbPath else null,
+        rects = rects,
+        logoUri = logoUriStr?.let { android.net.Uri.parse(it) },
+        lx = savedLogoRelX,
+        ly = savedLogoRelY,
+        lw = relW
+    )
+
+    // ✅ UX: return immediately
+    safeToast("נשלח ברקע…")
+    clearDraft()
+    finish()
+}
+
 
 
     private suspend fun processVideoSuspending(
