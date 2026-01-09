@@ -5,22 +5,24 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
-import com.pasiflonet.mobile.BlurRect
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import kotlin.math.max
+import kotlin.math.min
 
 class DrawingView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    // אנחנו שומרים את הריבועים באחוזים (0.0-1.0) ולא בפיקסלים!
-    private val relativeRects = mutableListOf<BlurRect>()
-    
-    private val paint = Paint().apply {
-        color = 0x80FF0000.toInt()
+    // RectF values are RELATIVE (0..1) inside validBounds
+    private val relativeRects = mutableListOf<RectF>()
+
+    private val fillPaint = Paint().apply {
+        color = 0x55000000
         style = Paint.Style.FILL
     }
+
     private val borderPaint = Paint().apply {
         color = Color.RED
         style = Paint.Style.STROKE
@@ -33,26 +35,22 @@ class DrawingView @JvmOverloads constructor(
     private var currentX = 0f
     private var currentY = 0f
     private var isDrawing = false
-    
-    // גבולות התמונה הנוכחיים
+
     private var validBounds = RectF(0f, 0f, 0f, 0f)
 
     fun setValidBounds(bounds: RectF) {
-        this.validBounds = bounds
-        invalidate() // ציור מחדש במיקום המעודכן
+        validBounds = bounds
+        invalidate()
     }
 
-    // החזרת הרשימה המוכנה (כבר באחוזים)
-    val rects: List<BlurRect>
+    val rects: List<RectF>
         get() = relativeRects.toList()
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!isBlurMode) return false
-        
-        // הגנה: אם אין תמונה מזוהה, אי אפשר לצייר
-        if (validBounds.width() <= 0) return false
+        if (validBounds.width() <= 0f || validBounds.height() <= 0f) return false
 
-        when (event.action) {
+        when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 startX = event.x
                 startY = event.y
@@ -68,31 +66,28 @@ class DrawingView @JvmOverloads constructor(
                 invalidate()
                 return true
             }
-            MotionEvent.ACTION_UP -> {
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 isDrawing = false
-                
-                // חישוב הריבוע בפיקסלים
-                var left = Math.min(startX, currentX)
-                var right = Math.max(startX, currentX)
-                var top = Math.min(startY, currentY)
-                var bottom = Math.max(startY, currentY)
-                
-                // חיתוך לגבולות התמונה (Clipping)
-                if (left < validBounds.left) left = validBounds.left
-                if (right > validBounds.right) right = validBounds.right
-                if (top < validBounds.top) top = validBounds.top
-                if (bottom > validBounds.bottom) bottom = validBounds.bottom
-                
-                // בדיקת גודל מינימלי
-                if (right - left > 10 && bottom - top > 10) {
-                    // המרה לאחוזים ושמירה
+
+                var left = min(startX, currentX)
+                var right = max(startX, currentX)
+                var top = min(startY, currentY)
+                var bottom = max(startY, currentY)
+
+                // clip to valid bounds
+                left = left.coerceIn(validBounds.left, validBounds.right)
+                right = right.coerceIn(validBounds.left, validBounds.right)
+                top = top.coerceIn(validBounds.top, validBounds.bottom)
+                bottom = bottom.coerceIn(validBounds.top, validBounds.bottom)
+
+                if (right - left > 10f && bottom - top > 10f) {
                     val relLeft = (left - validBounds.left) / validBounds.width()
                     val relRight = (right - validBounds.left) / validBounds.width()
                     val relTop = (top - validBounds.top) / validBounds.height()
                     val relBottom = (bottom - validBounds.top) / validBounds.height()
-                    
-                    relativeRects.add(BlurRect(relLeft, relTop, relRight, relBottom))
+                    relativeRects.add(RectF(relLeft, relTop, relRight, relBottom))
                 }
+
                 invalidate()
                 return true
             }
@@ -102,57 +97,44 @@ class DrawingView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        
-        if (validBounds.width() <= 0) return
+        if (validBounds.width() <= 0f || validBounds.height() <= 0f) return
 
-        // המרה מאחוזים לפיקסלים בזמן אמת (כדי לצייר במקום הנכון גם אם המסך זז)
+        // draw saved rects
         for (r in relativeRects) {
             val absLeft = validBounds.left + (r.left * validBounds.width())
             val absRight = validBounds.left + (r.right * validBounds.width())
             val absTop = validBounds.top + (r.top * validBounds.height())
             val absBottom = validBounds.top + (r.bottom * validBounds.height())
-            
-            canvas.drawRect(absLeft, absTop, absRight, absBottom, paint)
+
+            canvas.drawRect(absLeft, absTop, absRight, absBottom, fillPaint)
             canvas.drawRect(absLeft, absTop, absRight, absBottom, borderPaint)
         }
 
-        // ציור הריבוע הזמני (תוך כדי גרירה)
+        // draw current drag rect
         if (isDrawing) {
-            val l = Math.min(startX, currentX)
-            val r = Math.max(startX, currentX)
-            val t = Math.min(startY, currentY)
-            val b = Math.max(startY, currentY)
-            canvas.drawRect(l, t, r, b, paint)
+            val l = min(startX, currentX)
+            val r = max(startX, currentX)
+            val t = min(startY, currentY)
+            val b = max(startY, currentY)
+            canvas.drawRect(l, t, r, b, borderPaint)
         }
     }
-    
+
     fun undo() {
         if (relativeRects.isNotEmpty()) {
             relativeRects.removeAt(relativeRects.lastIndex)
             invalidate()
         }
     }
-    
+
     fun clear() {
         relativeRects.clear()
         invalidate()
     }
 
-    fun setRects(newRects: List<BlurRect>) {
+    fun setRects(newRects: List<RectF>) {
         relativeRects.clear()
         relativeRects.addAll(newRects)
         invalidate()
-    }
-
-    // Different name to avoid JVM signature clash (List erasure)
-    fun setRectsRectF(newRects: List<RectF>) {
-        relativeRects.clear()
-        for (r in newRects) relativeRects.add(BlurRect(r.left, r.top, r.right, r.bottom))
-        invalidate()
-    }
-
-    // Backward compat for old calls that pass ArrayList<RectF>
-    fun setRects(newRects: ArrayList<RectF>) {
-        setRectsRectF(newRects)
     }
 }

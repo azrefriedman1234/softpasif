@@ -19,6 +19,8 @@ import java.io.File
 import java.io.FileOutputStream
 import com.pasiflonet.mobile.td.TdLibManager
 import com.pasiflonet.mobile.BlurRect
+import android.widget.Toast
+import android.view.ScaleGestureDetector
 
 class DetailsActivity : AppCompatActivity() {
 
@@ -61,7 +63,9 @@ class DetailsActivity : AppCompatActivity() {
         b = ActivityDetailsBinding.inflate(layoutInflater)
         setContentView(b.root)
 
-        // read intent extras (keep tolerant keys)
+        
+        wireLogoFromSettings()
+// read intent extras (keep tolerant keys)
         fileId = intent.getLongExtra("file_id", intent.getLongExtra("fileId", -1L))
         isVideo = intent.getBooleanExtra("is_video", intent.getBooleanExtra("isVideo", false))
         thumbPath = intent.getStringExtra("thumb_path") ?: intent.getStringExtra("thumbPath")
@@ -160,9 +164,9 @@ class DetailsActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 if (!includeMedia) {
-                      TdLibManager.sendFinalMessage(target, caption, null, false)
-                      clearDraft()
-                      return@launch
+                    TdLibManager.sendFinalMessage(target, caption, null, false)
+                    clearDraft()
+                    return@launch
                   }
 
                 // Build a "thumbPath" if missing but we have content uri
@@ -175,7 +179,7 @@ class DetailsActivity : AppCompatActivity() {
                 // If your TdLibManager expects more args (blur rects/logo placement), adapt there —
                 // but this Activity keeps the same concepts wired.
                 TdLibManager.sendFinalMessage(target, caption, thumb, isVideo)
-                clearDraft()
+                    clearDraft()
                       clearDraft()
             } catch (_: Exception) {
                 // If we already finished, nothing to show. But avoid leaving overlay stuck if still alive.
@@ -354,6 +358,212 @@ class DetailsActivity : AppCompatActivity() {
         if (id1 != 0) return findViewById(id1)
         val id2 = resources.getIdentifier("btnSelectLogo", "id", packageName)
         if (id2 != 0) return findViewById(id2)
+        return null
+    }
+
+
+    private var logoOverlay: android.widget.ImageView? = null
+    private var logoRelX: Float = 0.5f
+    private var logoRelY: Float = 0.5f
+    private var logoScale: Float = 0.25f
+
+    private fun wireLogoFromSettings() {
+        // try common button ids without relying on ViewBinding property names
+        val btn = firstViewByIdNames(
+            "btnPickLogo", "btnSelectLogo", "btnLogo", "btnSetLogo", "btnChooseLogo"
+        )
+        btn?.setOnClickListener { applyLogoFromSettings() }
+
+        // auto-show if exists
+        applyLogoFromSettings(showToastIfMissing = false)
+    }
+
+    private fun applyLogoFromSettings(showToastIfMissing: Boolean = true) {
+        val sp = prefsForLogo()
+        val uriStr = readFirstString(sp, "logo_uri", "logoUri", "logo_path", "logoPath")
+        if (uriStr.isNullOrBlank()) {
+            if (showToastIfMissing) {
+                android.widget.Toast.makeText(this, "אין לוגו בהגדרות", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        val container = findPreviewContainer() ?: return
+        val iv = ensureLogoOverlay(container)
+
+        // placement (supports old/new key names)
+        logoRelX = sp.getFloat("logo_rel_x", sp.getFloat("logoRelX", 0.5f))
+        logoRelY = sp.getFloat("logo_rel_y", sp.getFloat("logoRelY", 0.5f))
+        logoScale = sp.getFloat("logo_scale", sp.getFloat("logoScale", 0.25f))
+
+        iv.setImageURI(android.net.Uri.parse(uriStr))
+        iv.visibility = android.view.View.VISIBLE
+
+        container.post {
+            applyLogoPlacement(container, iv)
+            setupLogoTouch(container, iv, sp)
+        }
+    }
+
+    private fun prefsForLogo(): android.content.SharedPreferences {
+        val names = listOf("pasif_settings", "settings", "prefs", "app_prefs")
+        val keys = listOf("logo_uri", "logoUri", "logo_path", "logoPath")
+        for (n in names) {
+            val sp = getSharedPreferences(n, MODE_PRIVATE)
+            for (k in keys) {
+                val v = sp.getString(k, null)
+                if (!v.isNullOrBlank()) return sp
+            }
+        }
+        return getSharedPreferences("pasif_settings", MODE_PRIVATE)
+    }
+
+    private fun readFirstString(sp: android.content.SharedPreferences, vararg keys: String): String? {
+        for (k in keys) {
+            val v = sp.getString(k, null)
+            if (!v.isNullOrBlank()) return v
+        }
+        return null
+    }
+
+    private fun findPreviewContainer(): android.view.ViewGroup? {
+        // common containers by id name
+        val byName =
+            (findViewByIdName("previewContainer") as? android.view.ViewGroup)
+                ?: (findViewByIdName("flPreview") as? android.view.ViewGroup)
+                ?: (findViewByIdName("preview") as? android.view.ViewGroup)
+
+        if (byName != null) return byName
+
+        // fallback: parent of drawingView
+        return runCatching { b.drawingView.parent as? android.view.ViewGroup }.getOrNull()
+            ?: (b.root as? android.view.ViewGroup)
+    }
+
+    private fun ensureLogoOverlay(container: android.view.ViewGroup): android.widget.ImageView {
+        val existing = logoOverlay
+        if (existing != null && existing.parent === container) return existing
+
+        val iv = android.widget.ImageView(this).apply {
+            layoutParams = android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            visibility = android.view.View.GONE
+        }
+        container.addView(iv)
+        iv.bringToFront()
+        logoOverlay = iv
+        return iv
+    }
+
+    private fun applyLogoPlacement(container: android.view.ViewGroup, iv: android.widget.ImageView) {
+        if (container.width <= 0 || container.height <= 0) return
+
+        val s = logoScale.coerceIn(0.05f, 3.0f)
+        iv.scaleX = s
+        iv.scaleY = s
+
+        val w = (if (iv.width > 0) iv.width else iv.measuredWidth).toFloat().coerceAtLeast(1f)
+        val h = (if (iv.height > 0) iv.height else iv.measuredHeight).toFloat().coerceAtLeast(1f)
+
+        val cx = logoRelX.coerceIn(0f, 1f) * container.width
+        val cy = logoRelY.coerceIn(0f, 1f) * container.height
+
+        iv.translationX = cx - (w * s) / 2f
+        iv.translationY = cy - (h * s) / 2f
+    }
+
+    private fun setupLogoTouch(
+        container: android.view.ViewGroup,
+        iv: android.widget.ImageView,
+        sp: android.content.SharedPreferences
+    ) {
+        val scaleDetector = android.view.ScaleGestureDetector(this,
+            object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
+                    val newScale = (iv.scaleX * detector.scaleFactor).coerceIn(0.05f, 3.0f)
+                    iv.scaleX = newScale
+                    iv.scaleY = newScale
+                    saveLogoPlacement(container, iv, sp)
+                    return true
+                }
+            }
+        )
+
+        var lastX = 0f
+        var lastY = 0f
+        var dragging = false
+
+        iv.setOnTouchListener { _, ev ->
+            scaleDetector.onTouchEvent(ev)
+
+            when (ev.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    dragging = true
+                    lastX = ev.rawX
+                    lastY = ev.rawY
+                    true
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    if (!dragging || scaleDetector.isInProgress) return@setOnTouchListener true
+                    val dx = ev.rawX - lastX
+                    val dy = ev.rawY - lastY
+                    lastX = ev.rawX
+                    lastY = ev.rawY
+
+                    iv.translationX += dx
+                    iv.translationY += dy
+                    saveLogoPlacement(container, iv, sp)
+                    true
+                }
+                android.view.MotionEvent.ACTION_UP,
+                android.view.MotionEvent.ACTION_CANCEL -> {
+                    dragging = false
+                    saveLogoPlacement(container, iv, sp)
+                    true
+                }
+                else -> true
+            }
+        }
+    }
+
+    private fun saveLogoPlacement(
+        container: android.view.ViewGroup,
+        iv: android.widget.ImageView,
+        sp: android.content.SharedPreferences
+    ) {
+        if (container.width <= 0 || container.height <= 0) return
+        val s = iv.scaleX
+
+        val w = (if (iv.width > 0) iv.width else iv.measuredWidth).toFloat().coerceAtLeast(1f)
+        val h = (if (iv.height > 0) iv.height else iv.measuredHeight).toFloat().coerceAtLeast(1f)
+
+        val cx = iv.translationX + (w * s) / 2f
+        val cy = iv.translationY + (h * s) / 2f
+
+        logoRelX = (cx / container.width).coerceIn(0f, 1f)
+        logoRelY = (cy / container.height).coerceIn(0f, 1f)
+        logoScale = s.coerceIn(0.05f, 3.0f)
+
+        sp.edit()
+            .putFloat("logo_rel_x", logoRelX)
+            .putFloat("logo_rel_y", logoRelY)
+            .putFloat("logo_scale", logoScale)
+            .apply()
+    }
+
+    private fun findViewByIdName(name: String): android.view.View? {
+        val id = resources.getIdentifier(name, "id", packageName)
+        return if (id != 0) findViewById(id) else null
+    }
+
+    private fun firstViewByIdNames(vararg names: String): android.view.View? {
+        for (n in names) {
+            val v = findViewByIdName(n)
+            if (v != null) return v
+        }
         return null
     }
 
