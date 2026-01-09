@@ -1,7 +1,7 @@
 package com.pasiflonet.mobile
 
 import android.content.Context
-import com.pasiflonet.mobile.worker.BackgroundSendWorker
+import com.pasiflonet.mobile.worker.com.pasiflonet.mobile.worker.BackgroundSendWorker
 import androidx.work.WorkManager
 import androidx.work.OneTimeWorkRequestBuilder
 import android.content.Intent
@@ -313,8 +313,8 @@ class DetailsActivity : AppCompatActivity() {
         logoUri: Uri?,
         lx: Float, ly: Float, lw: Float
     ) {
-        val rectsJson = BackgroundSendWorker.BackgroundSendWorker.encodeRects(rects)
-        val input = BackgroundSendWorker.BackgroundSendWorker.buildInput(
+        val rectsJson = com.pasiflonet.mobile.worker.BackgroundSendWorker.com.pasiflonet.mobile.worker.BackgroundSendWorker.encodeRects(rects)
+        val input = com.pasiflonet.mobile.worker.BackgroundSendWorker.com.pasiflonet.mobile.worker.BackgroundSendWorker.buildInput(
             target = target,
             caption = caption,
             isVideo = isVideo,
@@ -324,7 +324,7 @@ class DetailsActivity : AppCompatActivity() {
             logoUri = logoUri?.toString(),
             lx = lx, ly = ly, lw = lw
         )
-        val req = OneTimeWorkRequestBuilder<BackgroundSendWorker>()
+        val req = OneTimeWorkRequestBuilder<com.pasiflonet.mobile.worker.BackgroundSendWorker>()
             .setInputData(input)
             .addTag("send_bg")
             .build()
