@@ -267,7 +267,7 @@ private fun performSafeSend() {
                 caption = caption,
                 isVideo = isVideo,
                 fileId = fileId,
-                fallbackPath = fallbackPath,
+                fallbackPath = safeFallbackPath,
                 rects = rects,
                 logoUri = logoUri,
                 lx = savedLogoRelX,
@@ -324,13 +324,19 @@ private fun performSafeSend() {
         logoUri: Uri?,
         lx: Float, ly: Float, lw: Float
     ) {
+        // ✅ GUARD: never pass Telegram thumbnail as video fallback
+        val safeFallbackPath = fallbackPath?.let { p ->
+            val lp = p.lowercase()
+            if (isVideo && (lp.endsWith(".jpg") || lp.endsWith(".jpeg") || lp.endsWith(".png") || lp.endsWith(".webp"))) null else p
+        }
+
         val rectsJson = BackgroundSendWorker.encodeRects(rects)
         val input = BackgroundSendWorker.buildInput(
             target = target,
             caption = caption,
             isVideo = isVideo,
             fileId = fileId,
-            fallbackPath = fallbackPath,
+            fallbackPath = safeFallbackPath,
             rectsJson = rectsJson,
             logoUri = logoUri?.toString(),
             lx = lx, ly = ly, lw = lw

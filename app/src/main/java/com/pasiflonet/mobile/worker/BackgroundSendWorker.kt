@@ -59,6 +59,32 @@ override suspend fun doWork(): Result {
         // 1) אם יש fileId - נעדיף path מ-TDLib
         // 2) אחרת fallbackPath (יכול להיות content:// או file path)
         var inputPath: String? = null
+        // ✅ PREFER REAL MEDIA VIA fileId (avoid thumbnails)
+        run {
+            if (fileId != 0) {
+                var p = TdLibManager.getFilePath(fileId)
+                if (p == null || !File(p).exists() || (isVideo && isImagePath(p))) {
+                    TdLibManager.downloadFile(fileId)
+                    repeat(20) {
+                        delay(500)
+                        p = TdLibManager.getFilePath(fileId)
+                        if (p != null && File(p).exists() && !(isVideo && isImagePath(p))) return@repeat
+                    }
+                }
+                if (p != null && File(p).exists() && !(isVideo && isImagePath(p))) {
+                    inputPath = p
+                }
+            }
+            if (isVideo && isImagePath(inputPath)) {
+                DebugLog.append(applicationContext, "BG worker FAIL: thumbnail used as video input: $inputPath")
+                throw IllegalArgumentException("thumbnail-as-video")
+            }
+            if (inputPath.isNullOrBlank()) {
+                DebugLog.append(applicationContext, "BG worker FAIL: inputPath missing (fileId=$fileId)")
+                throw IllegalArgumentException("inputPath-missing")
+            }
+        }
+
         try {
             if (fileId != 0) inputPath = TdLibManager.getFilePath(fileId)
         } catch (_: Throwable) {}
@@ -256,4 +282,11 @@ override suspend fun doWork(): Result {
                 .build()
         }
     }
+
+    private fun isImagePath(p: String?): Boolean {
+        if (p.isNullOrBlank()) return false
+        val lp = p.lowercase()
+        return lp.endsWith(".jpg") || lp.endsWith(".jpeg") || lp.endsWith(".png") || lp.endsWith(".webp")
+    }
+
 }
