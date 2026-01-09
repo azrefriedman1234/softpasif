@@ -244,10 +244,10 @@ private fun performSafeSend() {
                       lw = relW
                   )
                   clearDraft()
-                  withContext(Dispatchers.Main) {
-                      if (!isFinishing) finish()
-                  }
+                  runOnUiThread { if (!isFinishing) finish() }
                   return@launch
+
+
 
         (b.ivDraggableLogo.width * savedLogoScale) / imageBounds.width()
     else 0.2f
