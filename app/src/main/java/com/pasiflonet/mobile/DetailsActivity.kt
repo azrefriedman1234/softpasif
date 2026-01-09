@@ -62,10 +62,6 @@ class DetailsActivity : AppCompatActivity() {
             b.ivDraggableLogo.visibility = android.view.View.VISIBLE
             b.drawingView.isBlurMode = false
             b.ivDraggableLogo.post { calculateMatrixBounds(); savedLogoRelX = 0.5f; savedLogoRelY = 0.5f; restoreLogoPosition() }
-            } catch (e: Throwable) {
-                saveCrash("performSafeSend", e)
-                safeToast("Crash captured. Open app again to see report.")
-            }
         }
     }
 
@@ -105,9 +101,7 @@ class DetailsActivity : AppCompatActivity() {
     private fun clearDraft() { getSharedPreferences("draft_prefs", MODE_PRIVATE).edit().clear().apply() }
     private fun safeToast(msg: String) { runOnUiThread { if (!isFinishing && !isDestroyed) Toast.makeText(applicationContext, msg, Toast.LENGTH_LONG).show() } }
     
-    private fun startHDImageHunter(targetId: Int) { TdLibManager.downloadFile(targetId); lifecycleScope.launch(Dispatchers.IO) { 
-            try {
-for (i in 0..20) { val realPath = TdLibManager.getFilePath(targetId); if (realPath != null && File(realPath).exists() && File(realPath).length() > 1000) { withContext(Dispatchers.Main) { if(!isFinishing) { thumbPath = realPath; loadSharpImage(realPath); saveDraft() } }; break }; delay(500) } } }
+    private fun startHDImageHunter(targetId: Int) { TdLibManager.downloadFile(targetId); lifecycleScope.launch(Dispatchers.IO) { for (i in 0..20) { val realPath = TdLibManager.getFilePath(targetId); if (realPath != null && File(realPath).exists() && File(realPath).length() > 1000) { withContext(Dispatchers.Main) { if(!isFinishing) { thumbPath = realPath; loadSharpImage(realPath); saveDraft() } }; break }; delay(500) } } }
     private fun loadSharpImage(path: String) { b.ivPreview.load(File(path)) { memoryCachePolicy(CachePolicy.DISABLED); diskCachePolicy(CachePolicy.DISABLED); crossfade(true); listener(onSuccess = { _, _ -> b.ivPreview.post { calculateMatrixBounds() } }) } }
 
     private fun setupTools() {
@@ -288,17 +282,4 @@ for (i in 0..20) { val realPath = TdLibManager.getFilePath(targetId); if (realPa
             cont.resume(result)
         }
     }
-
-    private fun saveCrash(tag: String, e: Throwable) {
-        try {
-            val sw = java.io.StringWriter()
-            e.printStackTrace(java.io.PrintWriter(sw))
-            val txt = "Tag: $tag
-Exception: ${e.javaClass.name}: ${e.message}
-
-" + sw.toString()
-            java.io.File(filesDir, "crash_last.txt").writeText(txt, Charsets.UTF_8)
-        } catch (_: Exception) {}
-    }
-
 }
