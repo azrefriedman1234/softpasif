@@ -257,4 +257,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    private fun shareCrashText(txt: String) {
+        try {
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "Pasiflonet crash report")
+                putExtra(Intent.EXTRA_TEXT, txt)
+            }
+            startActivity(Intent.createChooser(sendIntent, "Share crash report"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Share failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
 }
