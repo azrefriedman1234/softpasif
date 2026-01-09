@@ -18,6 +18,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import com.pasiflonet.mobile.td.TdLibManager
+import com.pasiflonet.mobile.BlurRect
 
 class DetailsActivity : AppCompatActivity() {
 
@@ -159,7 +160,7 @@ class DetailsActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 if (!includeMedia) {
-                    TdLibManager.sendFinalMessage(target, caption, null, isVideo)clearDraft()
+                    TdLibManager.sendFinalMessage(target, caption, localPath, isVideo)clearDraft()
                     return@launch
                 }
 
@@ -172,7 +173,7 @@ class DetailsActivity : AppCompatActivity() {
                 // Send media using your existing manager signature (keep tolerant)
                 // If your TdLibManager expects more args (blur rects/logo placement), adapt there —
                 // but this Activity keeps the same concepts wired.
-                TdLibManager.sendFinalMessage(target, caption, thumbPath, isVideo)
+                TdLibManager.sendFinalMessage(target, caption, localPath, isVideo)
                 clearDraft()clearDraft()
             } catch (_: Exception) {
                 // If we already finished, nothing to show. But avoid leaving overlay stuck if still alive.
@@ -345,4 +346,14 @@ class DetailsActivity : AppCompatActivity() {
         // fallback: no-op if not implemented elsewhere
         return text
     }
+
+    private fun _logoButton(): android.view.View? {
+        // Try both possible IDs so builds don't break if layout changed
+        val id1 = resources.getIdentifier("btnPickLogo", "id", packageName)
+        if (id1 != 0) return findViewById(id1)
+        val id2 = resources.getIdentifier("btnSelectLogo", "id", packageName)
+        if (id2 != 0) return findViewById(id2)
+        return null
+    }
+
 }

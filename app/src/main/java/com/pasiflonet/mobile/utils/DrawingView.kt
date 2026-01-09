@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import com.pasiflonet.mobile.BlurRect
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -170,6 +171,46 @@ class DrawingView @JvmOverloads constructor(
         } catch (_: Throwable) {
             // keep silent
         }
+    }
+
+
+
+    fun setRects(newRects: List<RectF>) {
+        try {
+            // Prefer a real rects field if it exists
+            val f = this.javaClass.getDeclaredField("rects").apply { isAccessible = true }
+            val cur = f.get(this)
+            if (cur is MutableList<*>) {
+                @Suppress("UNCHECKED_CAST")
+                val list = cur as MutableList<RectF>
+                list.clear()
+                list.addAll(newRects)
+                invalidate()
+                return
+            }
+        } catch (_: Throwable) {
+            // fallback below
+        }
+
+        try {
+            // fallback: look for property named rects via Kotlin getter pattern
+            val m = this.javaClass.methods.firstOrNull { it.name == "getRects" && it.parameterCount == 0 }
+            val cur = m?.invoke(this)
+            if (cur is MutableList<*>) {
+                @Suppress("UNCHECKED_CAST")
+                val list = cur as MutableList<RectF>
+                list.clear()
+                list.addAll(newRects)
+                invalidate()
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    fun setRects(newRects: List<BlurRect>) {
+        val asRectF = ArrayList<RectF>(newRects.size)
+        for (r in newRects) asRectF.add(RectF(r.left, r.top, r.right, r.bottom))
+        setRects(asRectF)
     }
 
 }
