@@ -1,4 +1,5 @@
 package com.pasiflonet.mobile
+import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.json.JSONArray
 
@@ -45,7 +46,14 @@ import java.util.ArrayList
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
-class DetailsActivity : AppCompatActivity() {
+class DetailsActivity : AppCompatActivity() {    private var fileId: Long = 0L
+    private var isVideo: Boolean = false
+    private var savedLogoRelX: Float = 0f
+    private var savedLogoRelY: Float = 0f
+    private var savedLogoRelW: Float = 0.25f
+    private var imageBounds: android.graphics.RectF? = null
+
+
     private lateinit var b: ActivityDetailsBinding
     private var thumbPath: String? = null
     private var isVideo = false
