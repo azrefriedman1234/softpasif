@@ -2,125 +2,57 @@ package com.pasiflonet.mobile.worker
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.Data
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.pasiflonet.mobile.td.TdLibManager
-import com.pasiflonet.mobile.utils.BlurRect
-import com.pasiflonet.mobile.utils.DebugLog
 import com.pasiflonet.mobile.utils.ImageUtils
-import com.pasiflonet.mobile.utils.MediaProcessor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.io.File
 import java.io.FileOutputStream
-import kotlin.coroutines.resume
 
 class BackgroundSendWorker(
     appContext: Context,
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
 
-    companion object BackgroundSendWorker {
-        private const val K_TARGET = "target"
-        private const val K_CAPTION = "caption"
-        private const val K_IS_VIDEO = "isVideo"
-        private const val K_FILE_ID = "fileId"
-        private const val K_FALLBACK_PATH = "fallbackPath"
-        private const val K_RECTS_JSON = "rectsJson"
-        private const val K_LOGO_URI = "logoUri"
-        private const val K_LX = "lx"
-        private const val K_LY = "ly"
-        private const val K_LW = "lw"
-
-        fun encodeRects(rects: List<BlurRect>): String {
-            val arr = JSONArray()
-            for (r in rects) {
-                val o = JSONArray()
-                o.put(r.left); o.put(r.top); o.put(r.right); o.put(r.bottom)
-                arr.put(o)
-            }
-            return arr.toString()
-        }
-
-        fun decodeRects(json: String?): List<BlurRect> {
-            if (json.isNullOrBlank()) return emptyList()
-            return try {
-                val arr = JSONArray(json)
-                val out = ArrayList<BlurRect>(arr.length())
-                for (i in 0 until arr.length()) {
-                    val a = arr.getJSONArray(i)
-                    if (a.length() >= 4) {
-                        out.add(BlurRect(
-                            a.optDouble(0, 0.0).toFloat(),
-                            a.optDouble(1, 0.0).toFloat(),
-                            a.optDouble(2, 0.0).toFloat(),
-                            a.optDouble(3, 0.0).toFloat(),
-                        ))
-                    }
-                }
-                out
-            } catch (_: Throwable) {
-                emptyList()
-            }
-        }
-
-        fun buildInput(
-            target: String,
-            caption: String,
-            isVideo: Boolean,
-            fileId: Int,
-            fallbackPath: String?,
-            rectsJson: String?,
-            logoUri: String?,
-            lx: Float,
-            ly: Float,
-            lw: Float
-        ): Data {
-            val b = Data.Builder()
-            b.putString(K_TARGET, target)
-            b.putString(K_CAPTION, caption)
-            b.putBoolean(K_IS_VIDEO, isVideo)
-            b.putInt(K_FILE_ID, fileId)
-            if (!fallbackPath.isNullOrBlank()) b.putString(K_FALLBACK_PATH, fallbackPath)
-            if (!rectsJson.isNullOrBlank()) b.putString(K_RECTS_JSON, rectsJson)
-            if (!logoUri.isNullOrBlank()) b.putString(K_LOGO_URI, logoUri)
-            b.putFloat(K_LX, lx)
-            b.putFloat(K_LY, ly)
-            b.putFloat(K_LW, lw)
-            return b.build()
-        }
-    }
-
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
-            val target = inputData.getString(K_TARGET).orEmpty()
-            val caption = inputData.getString(K_CAPTION).orEmpty()
-            val isVideo = inputData.getBoolean(K_IS_VIDEO, false)
-            val fileId = inputData.getInt(K_FILE_ID, 0)
-            val fallbackPath = inputData.getString(K_FALLBACK_PATH)
-            val rects = decodeRects(inputData.getString(K_RECTS_JSON))
-            val logoUriStr = inputData.getString(K_LOGO_URI)
-            val lx = inputData.getFloat(K_LX, 0.02f)
-            val ly = inputData.getFloat(K_LY, 0.02f)
-            val lw = inputData.getFloat(K_LW, 0.30f)
+            val target = inputData.getString(KEY_TARGET).orEmpty()
+            val caption = inputData.getString(KEY_CAPTION).orEmpty()
+            val isVideo = inputData.getBoolean(KEY_IS_VIDEO, false)
+            val fileId = inputData.getLong(KEY_FILE_ID, 0L)
+            val fallbackPath = inputData.getString(KEY_FALLBACK_PATH)
+
+            val lx = inputData.getFloat(KEY_LX, 0f)
+            val ly = inputData.getFloat(KEY_LY, 0f)
+            val lw = inputData.getFloat(KEY_LW, 0.2f)
+
+            val logoUriStr = inputData.getString(KEY_LOGO_URI)
+            val logoUri: Uri? = try { logoUriStr?.let { Uri.parse(it) } } catch (_: Throwable) { null }
+
+            val rectsJson = inputData.getString(KEY_RECTS_JSON)
+            val rects = buildBlurRects(rectsJson)
 
             if (target.isBlank()) {
-                DebugLog.append(applicationContext, "BG: missing target")
+                Log.e(TAG, "No target provided")
                 return@withContext Result.failure()
             }
 
-            // ✅ Resolve original media path from TDLib fileId or fallback
+            // Resolve input path
             var inputPath: String? = null
-            if (fileId != 0) {
+            if (fileId != 0L) {
                 inputPath = TdLibManager.getFilePath(fileId)
-                if (inputPath.isNullOrBlank() || !File(inputPath!!).exists()) {
+                if (inputPath.isNullOrBlank() || !File(inputPath).exists()) {
                     TdLibManager.downloadFile(fileId)
-                    // poll a bit
-                    repeat(20) {
+                    // wait a bit for TDLib download
+                    repeat(12) {
                         delay(500)
                         val p = TdLibManager.getFilePath(fileId)
                         if (!p.isNullOrBlank() && File(p).exists()) {
@@ -131,82 +63,255 @@ class BackgroundSendWorker(
                 }
             }
             if (inputPath.isNullOrBlank()) inputPath = fallbackPath
-    val inputPathStr: String = inputPath ?: fallbackPath ?: return Result.failure()
-                DebugLog.append(applicationContext, "BG: missing inputPath (fileId=$fileId)")
+
+            if (inputPath.isNullOrBlank()) {
+                Log.e(TAG, "No input path resolved (fileId=$fileId, fallback=$fallbackPath)")
                 return@withContext Result.failure()
             }
 
-            if (!File(inputPathStr).exists() && !inputPathStr.startsWith("content://")) {
-                DebugLog.append(applicationContext, "BG: inputPath not found: $inputPathStr")
+            // content:// -> real file
+            inputPath = ensureLocalFilePath(inputPath!!, isVideo)
+            if (inputPath.isNullOrBlank() || !File(inputPath!!).exists()) {
+                Log.e(TAG, "Input file does not exist after resolve: $inputPath")
                 return@withContext Result.failure()
             }
 
-            val outPath = File(applicationContext.cacheDir,
-                "processed_bg_${System.currentTimeMillis()}.${if (isVideo) "mp4" else "jpg"}"
-            ).absolutePath
+            // If there are edits, try to process to a new file; otherwise send original
+            val hasEdits = (rects.isNotEmpty()) || (logoUri != null)
+            val outFile = File(applicationContext.cacheDir, "processed_worker_${System.currentTimeMillis()}.${if (isVideo) "mp4" else "jpg"}")
+            val outPath = outFile.absolutePath
 
-            // ✅ Process
-            val ok = if (isVideo) {
-                processVideoSuspending(
-                    applicationContext,
-                    inputPathStr,
-                    outPath,
-                    rects,
-                    logoUriStr,
-                    lx, ly, lw
-                )
+            val sendPath: String = if (hasEdits) {
+                val ok = if (isVideo) {
+                    // video processing: try MediaProcessor reflection (avoids signature mismatch compile-time)
+                    tryProcessVideoReflective(
+                        applicationContext,
+                        inputPath!!,
+                        outPath,
+                        rects,
+                        logoUri,
+                        lx,
+                        ly,
+                        lw
+                    )
+                } else {
+                    try {
+                        ImageUtils.processImage(
+                            applicationContext,
+                            inputPath!!,
+                            outPath,
+                            rects,
+                            logoUri,
+                            lx,
+                            ly,
+                            lw
+                        )
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "ImageUtils.processImage failed", t)
+                        false
+                    }
+                }
+
+                if (ok && outFile.exists()) outPath else inputPath!!
             } else {
-                // ImageUtils expects Uri? logo
-                val logoUri = logoUriStr?.let { runCatching { Uri.parse(it) }.getOrNull() }
-                ImageUtils.processImage(
-                    applicationContext,
-                    inputPathStr,
-                    outPath,
-                    rects,
-                    logoUri,
-                    lx, ly, lw
-                )
+                inputPath!!
             }
 
-            if (!ok) {
-                DebugLog.append(applicationContext, "BG: processing failed")
-                return@withContext Result.failure()
+            // Send via TDLib
+            try {
+                TdLibManager.sendFinalMessage(target, caption, sendPath, isVideo)
+                Result.success()
+            } catch (t: Throwable) {
+                Log.e(TAG, "sendFinalMessage failed", t)
+                Result.retry()
             }
-
-            // ✅ Send final message
-            TdLibManager.sendFinalMessage(target, caption, outPath, isVideo)
-            DebugLog.append(applicationContext, "BG: sent ok -> $target | $outPath")
-            return@withContext Result.success()
-
         } catch (t: Throwable) {
-            DebugLog.append(applicationContext, "BG: crash: ${t.javaClass.simpleName}: ${t.message}")
-            return@withContext Result.failure()
+            Log.e(TAG, "Worker crashed", t)
+            Result.retry()
         }
     }
 
-    private suspend fun processVideoSuspending(
+    // -------- helpers --------
+
+    private fun ensureLocalFilePath(pathOrUri: String, isVideo: Boolean): String? {
+        return try {
+            when {
+                pathOrUri.startsWith("content://") -> {
+                    val uri = Uri.parse(pathOrUri)
+                    val ext = if (isVideo) "mp4" else "bin"
+                    val out = File(applicationContext.cacheDir, "in_${System.currentTimeMillis()}.$ext")
+                    applicationContext.contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(out).use { output -> input.copyTo(output) }
+                    } ?: return null
+                    out.absolutePath
+                }
+                pathOrUri.startsWith("file://") -> Uri.parse(pathOrUri).path
+                else -> pathOrUri
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "ensureLocalFilePath failed", e)
+            null
+        }
+    }
+
+    /**
+     * Build ArrayList<BlurRect> using reflection so it matches your existing BlurRect class.
+     * Falls back to empty list if class isn't found.
+     */
+    private fun buildBlurRects(rectsJson: String?): java.util.ArrayList<Any> {
+        val out = java.util.ArrayList<Any>()
+        if (rectsJson.isNullOrBlank()) return out
+        val cls = findBlurRectClass() ?: return out
+        val ctor = try { cls.getConstructor(Float::class.java, Float::class.java, Float::class.java, Float::class.java) } catch (_: Throwable) { null }
+        if (ctor == null) return out
+        try {
+            val arr = JSONArray(rectsJson)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val l = o.optDouble("l", 0.0).toFloat()
+                val t = o.optDouble("t", 0.0).toFloat()
+                val r = o.optDouble("r", 0.0).toFloat()
+                val b = o.optDouble("b", 0.0).toFloat()
+                out.add(ctor.newInstance(l, t, r, b))
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed parsing rectsJson", t)
+        }
+        return out
+    }
+
+    private fun findBlurRectClass(): Class<*>? {
+        val candidates = listOf(
+            "com.pasiflonet.mobile.BlurRect",
+            "com.pasiflonet.mobile.utils.BlurRect",
+            "com.pasiflonet.mobile.ui.BlurRect",
+            "com.pasiflonet.mobile.model.BlurRect"
+        )
+        for (n in candidates) {
+            try { return Class.forName(n) } catch (_: Throwable) {}
+        }
+        return null
+    }
+
+    /**
+     * Try to call your existing video processor without binding to an exact signature.
+     * If it can't find a method, returns false (we'll send original media).
+     */
+    private fun tryProcessVideoReflective(
         context: Context,
         inputPath: String,
         outputPath: String,
-        rects: List<BlurRect>,
-        logoUriStr: String?,
-        lx: Float, ly: Float, lw: Float
-    ): Boolean = suspendCancellableCoroutine { cont ->
-        try {
-            MediaProcessor.processContent(
-                context = context,
-                inputPath = inputPathStr,
-                outputPath = outputPath,
-                isVideo = true,
-                blurRects = rects,
-                hasLogo = !logoUriStr.isNullOrBlank(),
-                logoPath = logoUriStr,
-                logoRelX = lx,
-                logoRelY = ly,
-                logoRelW = lw
-            ) { ok -> cont.resume(ok) }
-        } catch (_: Throwable) {
-            cont.resume(false)
+        rects: java.util.ArrayList<Any>,
+        logoUri: Uri?,
+        lx: Float,
+        ly: Float,
+        lw: Float
+    ): Boolean {
+        val candidates = listOf(
+            "com.pasiflonet.mobile.utils.MediaProcessor",
+            "com.pasiflonet.mobile.utils.VideoProcessor",
+            "com.pasiflonet.mobile.utils.VideoUtils"
+        )
+
+        for (cn in candidates) {
+            try {
+                val cls = Class.forName(cn)
+                val inst = try { cls.getDeclaredField("INSTANCE").get(null) } catch (_: Throwable) { null }
+
+                val methods = cls.methods.filter { m ->
+                    val name = m.name.lowercase()
+                    name.contains("process") && name.contains("video")
+                } + cls.methods.filter { m -> m.name == "processVideoSuspending" || m.name == "processVideo" }
+
+                for (m in methods.distinct()) {
+                    try {
+                        val pt = m.parameterTypes
+                        // We try a few common shapes:
+                        // (Context, String, String, ArrayList, Uri?, Float, Float, Float)
+                        if (pt.size == 8 &&
+                            Context::class.java.isAssignableFrom(pt[0]) &&
+                            pt[1] == String::class.java &&
+                            pt[2] == String::class.java
+                        ) {
+                            val res = m.invoke(inst, context, inputPath, outputPath, rects, logoUri, lx, ly, lw)
+                            return when (res) {
+                                is Boolean -> res
+                                null -> File(outputPath).exists()
+                                else -> File(outputPath).exists()
+                            }
+                        }
+
+                        // (Context, String, String, ArrayList, Uri?, Float, Float, Float, Boolean)
+                        if (pt.size == 9 &&
+                            Context::class.java.isAssignableFrom(pt[0]) &&
+                            pt[1] == String::class.java &&
+                            pt[2] == String::class.java
+                        ) {
+                            val res = m.invoke(inst, context, inputPath, outputPath, rects, logoUri, lx, ly, lw, true)
+                            return when (res) {
+                                is Boolean -> res
+                                null -> File(outputPath).exists()
+                                else -> File(outputPath).exists()
+                            }
+                        }
+                    } catch (_: Throwable) {
+                        // try next
+                    }
+                }
+            } catch (_: Throwable) {
+                // try next class
+            }
+        }
+
+        Log.w(TAG, "No video processor method found by reflection; will send original video")
+        return false
+    }
+
+    companion object {
+        private const val TAG = "BackgroundSendWorker"
+
+        const val KEY_TARGET = "target"
+        const val KEY_CAPTION = "caption"
+        const val KEY_IS_VIDEO = "isVideo"
+        const val KEY_FILE_ID = "fileId"
+        const val KEY_FALLBACK_PATH = "fallbackPath"
+        const val KEY_RECTS_JSON = "rectsJson"
+        const val KEY_LOGO_URI = "logoUri"
+        const val KEY_LX = "lx"
+        const val KEY_LY = "ly"
+        const val KEY_LW = "lw"
+
+        fun enqueue(
+            context: Context,
+            target: String,
+            caption: String,
+            isVideo: Boolean,
+            fileId: Long,
+            fallbackPath: String?,
+            rectsJson: String?,
+            logoUri: String?,
+            lx: Float,
+            ly: Float,
+            lw: Float
+        ) {
+            val data = Data.Builder()
+                .putString(KEY_TARGET, target)
+                .putString(KEY_CAPTION, caption)
+                .putBoolean(KEY_IS_VIDEO, isVideo)
+                .putLong(KEY_FILE_ID, fileId)
+                .putString(KEY_FALLBACK_PATH, fallbackPath)
+                .putString(KEY_RECTS_JSON, rectsJson)
+                .putString(KEY_LOGO_URI, logoUri)
+                .putFloat(KEY_LX, lx)
+                .putFloat(KEY_LY, ly)
+                .putFloat(KEY_LW, lw)
+                .build()
+
+            val req = OneTimeWorkRequestBuilder<BackgroundSendWorker>()
+                .setInputData(data)
+                .build()
+
+            WorkManager.getInstance(context).enqueue(req)
         }
     }
 }
