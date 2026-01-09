@@ -167,7 +167,7 @@ class DetailsActivity : AppCompatActivity() {
             }
             true 
         }
-        b.sbLogoSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) { savedLogoScale = 0.5f + (p / 50f); b.ivDraggableLogo.scaleX = savedLogoScale; b.ivDraggableLogo.scaleY = savedLogoScale }; override fun onStartTrackingTouch(sb: SeekBar?) {}; override fun onStopTrackingTouch(sb: SeekBar?) {} })
+        b.sbLogoSize.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) { b.ivDraggableLogo.pivotX = 0f; b.ivDraggableLogo.pivotY = 0f; savedLogoScale = 0.5f + (p / 50f); b.ivDraggableLogo.scaleX = savedLogoScale; b.ivDraggableLogo.scaleY = savedLogoScale }; override fun onStartTrackingTouch(sb: SeekBar?) {}; override fun onStopTrackingTouch(sb: SeekBar?) {} })
         b.btnTranslate.setOnClickListener { lifecycleScope.launch { val t = b.etCaption.text.toString(); if (t.isNotEmpty()) { b.etCaption.setText(TranslationManager.translateToHebrew(t)); saveDraft() } } }
         b.btnSend.setOnClickListener { performSafeSend() }
         b.btnCancel.setOnClickListener { finish() }
@@ -229,6 +229,26 @@ private fun performSafeSend() {
     }
 
     val relW = if (imageBounds.width() > 0)
+
+                  // ✅ SEND IN BACKGROUND: close immediately, processing/sending continues in WorkManager
+                  enqueueBackgroundSend(
+                      target = target,
+                      caption = caption,
+                      isVideo = isVideo,
+                      fileId = fileId,
+                      fallbackPath = finalPath,
+                      rects = rects,
+                      logoUri = logoUri,
+                      lx = savedLogoRelX,
+                      ly = savedLogoRelY,
+                      lw = relW
+                  )
+                  clearDraft()
+                  withContext(Dispatchers.Main) {
+                      if (!isFinishing) finish()
+                  }
+                  return@launch
+
         (b.ivDraggableLogo.width * savedLogoScale) / imageBounds.width()
     else 0.2f
 
