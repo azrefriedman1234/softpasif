@@ -85,7 +85,7 @@ class DetailsActivity : AppCompatActivity() {
                 saveDraft()
             } else { if (restoreDraft()) safeToast("♻️ Restored session") }
             
-            val targetId = if (thumbId != 0) thumbId else fileId
+            val targetId = if (fileId != 0) fileId else thumbId
             if (targetId != 0) startHDImageHunter(targetId) else if (thumbPath != null) loadSharpImage(thumbPath!!)
             if (targetId == 0 && thumbPath.isNullOrEmpty()) { b.swIncludeMedia.isChecked = false; b.swIncludeMedia.isEnabled = false }
             

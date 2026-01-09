@@ -84,7 +84,7 @@ object TdLibManager {
             
             // אם אין מקור, בודקים אם הטאבנייל קיים (לפחות נשלח משהו)
             if (fullPath == null) {
-                if (File(thumbPath).exists()) fullPath = thumbPath
+                if ((fullPath == null || fullPath.isEmpty() || !java.io.File(fullPath).exists()) && java.io.File(thumbPath).exists()) fullPath = thumbPath
                 else {
                     showToast("❌ Error: Media file not found anywhere!")
                     return@launch
