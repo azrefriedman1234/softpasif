@@ -172,7 +172,8 @@ class DetailsActivity : AppCompatActivity() {
                 // Send media using your existing manager signature (keep tolerant)
                 // If your TdLibManager expects more args (blur rects/logo placement), adapt there —
                 // but this Activity keeps the same concepts wired.
-                TdLibManager.sendFinalMessage(target, caption, localPath, isVideo)clearDraft()
+                TdLibManager.sendFinalMessage(target, caption, thumbPath, isVideo)
+                clearDraft()clearDraft()
             } catch (_: Exception) {
                 // If we already finished, nothing to show. But avoid leaving overlay stuck if still alive.
                 runOnUiThread {
