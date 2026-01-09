@@ -45,7 +45,11 @@ class ChatAdapter(
                 type = "📷"
                 // זיהוי הקובץ הכי גדול להורדה אוטומטית
                 if (content.photo.sizes.isNotEmpty()) {
-                    fileIdToAutoDownload = content.photo.sizes.last().photo.id
+                    run {
+                    val sizes = content.photo.sizes
+                    val best = sizes.find { it.type == "x" } ?: sizes.find { it.type == "m" } ?: sizes.last()
+                    fileIdToAutoDownload = best.photo.id
+                }
                 }
             }
             is TdApi.MessageVideo -> { 
