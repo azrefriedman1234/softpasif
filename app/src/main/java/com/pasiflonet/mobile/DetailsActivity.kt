@@ -269,7 +269,7 @@ private fun performSafeSend() {
                 target = target,
                 caption = caption,
                 isVideo = isVideo,
-                fileId = fileId,
+                fileId = fileId.toLong(),
                 fallbackPath = fallbackPath,
                 rects = rects,
                 logoUri = logoUri,
