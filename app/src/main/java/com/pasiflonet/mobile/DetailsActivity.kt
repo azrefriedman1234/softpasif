@@ -49,7 +49,7 @@ class DetailsActivity : AppCompatActivity() {
     private lateinit var b: ActivityDetailsBinding
     private var thumbPath: String? = null
     private var isVideo = false
-    private var fileId = 0
+    private var fileId = 0.toLong()
     private var thumbId = 0
     private var imageBounds = RectF()
     private var savedLogoRelX = 0.5f; private var savedLogoRelY = 0.5f; private var savedLogoScale = 1.0f
@@ -84,7 +84,7 @@ class DetailsActivity : AppCompatActivity() {
             if (intentThumb != null || intentCaption != null) {
                 thumbPath = intentThumb
                 val miniThumb = intent.getByteArrayExtra("MINI_THUMB")
-                fileId = intent.getIntExtra("FILE_ID", 0); thumbId = intent.getIntExtra("THUMB_ID", 0)
+                fileId = intent.toLong().getIntExtra("FILE_ID", 0); thumbId = intent.getIntExtra("THUMB_ID", 0)
                 isVideo = intent.getBooleanExtra("IS_VIDEO", false)
                 b.etCaption.setText(intentCaption ?: "")
                 if (miniThumb != null) b.ivPreview.load(miniThumb)
@@ -103,7 +103,7 @@ class DetailsActivity : AppCompatActivity() {
     }
 
     private fun saveDraft() { try { getSharedPreferences("draft_prefs", MODE_PRIVATE).edit().putString("draft_caption", b.etCaption.text.toString()).putString("draft_path", thumbPath).putBoolean("draft_is_video", isVideo).putInt("draft_file_id", fileId).apply() } catch (e: Exception) {} }
-    private fun restoreDraft(): Boolean { val prefs = getSharedPreferences("draft_prefs", MODE_PRIVATE); val path = prefs.getString("draft_path", null); if (path != null || prefs.getString("draft_caption", "")!!.isNotEmpty()) { thumbPath = path; isVideo = prefs.getBoolean("draft_is_video", false); fileId = prefs.getInt("draft_file_id", 0); b.etCaption.setText(prefs.getString("draft_caption", "")); if (path != null) loadSharpImage(path); return true }; return false }
+    private fun restoreDraft(): Boolean { val prefs = getSharedPreferences("draft_prefs", MODE_PRIVATE); val path = prefs.getString("draft_path", null); if (path != null || prefs.getString("draft_caption", "")!!.isNotEmpty()) { thumbPath = path; isVideo = prefs.getBoolean("draft_is_video", false); fileId = prefs.toLong().getInt("draft_file_id", 0); b.etCaption.setText(prefs.getString("draft_caption", "")); if (path != null) loadSharpImage(path); return true }; return false }
     private fun clearDraft() { getSharedPreferences("draft_prefs", MODE_PRIVATE).edit().clear().apply() }
     private fun safeToast(msg: String) { runOnUiThread { if (!isFinishing && !isDestroyed) Toast.makeText(applicationContext, msg, Toast.LENGTH_LONG).show() } }
     
@@ -338,7 +338,7 @@ private fun performSafeSend() {
             target = target,
             caption = caption,
             isVideo = isVideo,
-            fileId = fileId,
+            fileId = fileId.toLong(),
             fallbackPath = fallbackPath,
             rectsJson = rectsJson,
             logoUriStr = logoUri?.toString(),

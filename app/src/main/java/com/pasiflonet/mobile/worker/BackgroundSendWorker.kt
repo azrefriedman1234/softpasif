@@ -347,4 +347,10 @@ class BackgroundSendWorker(
             WorkManager.getInstance(context).enqueue(req)
         }
     }
+
+    private fun isImagePath(p: String): Boolean {
+        val lp = p.lowercase()
+        return lp.endsWith(".jpg") || lp.endsWith(".jpeg") || lp.endsWith(".png") || lp.endsWith(".webp")
+    }
+
 }
