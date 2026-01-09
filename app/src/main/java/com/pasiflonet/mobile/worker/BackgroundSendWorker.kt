@@ -22,11 +22,68 @@ class BackgroundSendWorker(
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
 
-    override suspend fun doWork(): Result {
+    
+    // AUTO_DOWNLOAD_REAL_VIDEO_HELPERS
+    private fun isThumbnailPath(path: String): Boolean {
+        val p = path.lowercase()
+        return p.contains("/thumbnails/") || p.endsWith(".jpg") || p.endsWith(".jpeg") || p.endsWith(".png") || p.endsWith(".webp")
+    }
+
+    private suspend fun waitForRealVideoPath(fileId: Int, initialPath: String?): String? {
+        if (fileId == 0) return initialPath
+        val deadline = System.currentTimeMillis() + 120_000L // 2 דקות
+        var last: String? = initialPath
+        // טריגר הורדה
+        try { TdLibManager.downloadFile(fileId) } catch (_: Throwable) {}
+
+        while (System.currentTimeMillis() < deadline) {
+            val p = try { TdLibManager.getFilePath(fileId) } catch (_: Throwable) { null }
+            if (!p.isNullOrBlank()) {
+                last = p
+                val f = java.io.File(p)
+                if (f.exists() && f.length() > 0 && !isThumbnailPath(p)) return p
+            }
+            delay(700)
+        }
+        return last // אולי עדיין thumbnail/לא קיים -> נחליט למטה retry/failure
+    }
+    // AUTO_DOWNLOAD_REAL_VIDEO_HELPERS
+override suspend fun doWork(): Result {
         val target = inputData.getString("TARGET") ?: return Result.failure()
         val caption = inputData.getString("CAPTION") ?: ""
         val isVideo = inputData.getBoolean("IS_VIDEO", false)
         val fileId = inputData.getInt("FILE_ID", 0)
+
+        // AUTO_DOWNLOAD_REAL_VIDEO_FLOW
+        // בניית inputPath נכון:
+        // 1) אם יש fileId - נעדיף path מ-TDLib
+        // 2) אחרת fallbackPath (יכול להיות content:// או file path)
+        var inputPath: String? = null
+        try {
+            if (fileId != 0) inputPath = TdLibManager.getFilePath(fileId)
+        } catch (_: Throwable) {}
+        if (inputPath.isNullOrBlank()) inputPath = fallbackPath
+
+        // אם אין מדיה בכלל -> טקסט בלבד
+        if ((inputPath == null || inputPath.isBlank()) && fileId == 0) {
+            DebugLog.append(applicationContext, "BG worker: text-only -> sendFinalMessage")
+            TdLibManager.sendFinalMessage(target, caption, null, false)
+            return Result.success()
+        }
+
+        // אם זה וידאו אבל יש thumbnail/אין קובץ עדיין -> להוריד אוטומטית את הוידאו האמיתי
+        if (isVideo) {
+            val before = inputPath
+            inputPath = waitForRealVideoPath(fileId, inputPath)
+            DebugLog.append(applicationContext, "BG worker: video path resolve | before=$before | after=$inputPath | fileId=$fileId")
+            // אם עדיין thumbnail/לא קיים - ננסה שוב בריטרי (WorkManager)
+            if (inputPath.isNullOrBlank() || isThumbnailPath(inputPath!!) || !java.io.File(inputPath!!).exists()) {
+                DebugLog.append(applicationContext, "BG worker: video not ready yet -> retry")
+                return Result.retry()
+            }
+        }
+        // AUTO_DOWNLOAD_REAL_VIDEO_FLOW
+
         val fallbackPath = inputData.getString("FALLBACK_PATH")
 
         val logoUriStr = inputData.getString("LOGO_URI")
@@ -40,7 +97,7 @@ class BackgroundSendWorker(
         DebugLog.append(applicationContext, "BG worker start | target=$target isVideo=$isVideo fileId=$fileId fallback=$fallbackPath rects=${rects.size} hasLogo=${!logoUriStr.isNullOrBlank()}")
 
         // Resolve ORIGINAL media: prefer FILE_ID. fallbackPath is preview thumbPath.
-        val inputPath = resolveOriginalPath(fileId, fallbackPath)
+// (removed) inputPath is built above
         if (inputPath == null || !File(inputPath).exists()) {
             DebugLog.append(applicationContext, "BG worker FAIL: inputPath missing")
             return Result.failure()
