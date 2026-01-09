@@ -21,6 +21,48 @@ class BackgroundSendWorker(
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
 
+    private fun tryProcessImageReflective(
+        context: android.content.Context,
+        inputPath: String,
+        outputPath: String,
+        rects: java.util.ArrayList<Any>,
+        logoUri: android.net.Uri?,
+        lx: Float,
+        ly: Float,
+        lw: Float
+    ): Boolean {
+        val candidates = listOf(
+            "com.pasiflonet.mobile.utils.ImageUtils",
+            "com.pasiflonet.mobile.utils.MediaProcessor"
+        )
+        for (cn in candidates) {
+            try {
+                val cls = Class.forName(cn)
+                val inst = try { cls.getDeclaredField("INSTANCE").get(null) } catch (_: Throwable) { null }
+                for (m in cls.methods) {
+                    if (m.name != "processImage") continue
+                    try {
+                        val pt = m.parameterTypes
+                        if (pt.size == 8 &&
+                            android.content.Context::class.java.isAssignableFrom(pt[0]) &&
+                            pt[1] == String::class.java &&
+                            pt[2] == String::class.java
+                        ) {
+                            val res = m.invoke(inst, context, inputPath, outputPath, rects, logoUri, lx, ly, lw)
+                            return when (res) {
+                                is Boolean -> res
+                                else -> java.io.File(outputPath).exists()
+                            }
+                        }
+                    } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+        }
+        android.util.Log.w(TAG, "No processImage() found by reflection; will send original image")
+        return false
+    }
+
+
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             val target = inputData.getString(KEY_TARGET).orEmpty()
